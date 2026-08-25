@@ -1103,18 +1103,26 @@ export interface Translations {
       addDesc: string
       addConfirm: string
       addOptional: string
+      addNameHint: string
+      addAdvanced: string
       addTransport: string
       addTransportStdio: string
       addTransportHttp: string
       addTransportSse: string
       addCommand: string
+      addCommandHint: string
       addArgs: string
       addArgsHint: string
       addEnv: string
       addEnvHint: string
       addUrl: string
+      addUrlHint: string
+      addClientId: string
+      addClientSecret: string
+      addOauthHint: string
       addHeaders: string
       addHeadersHint: string
+      addTrustNotice: string
     }
     model: {
       loading: string

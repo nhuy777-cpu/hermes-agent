@@ -683,9 +683,14 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
   const activeEntry = selected ? servers[selected] : undefined
 
   return (
-    <div className={cn('grid h-full min-h-0 grid-cols-1', MASTER_DETAIL_WIDE_COLS)}>
-      {/* LEFT: the focused block's server config, or the unified fleet+catalog list. */}
-      <aside className="flex min-h-0 flex-col overflow-hidden border-r border-(--ui-stroke-quaternary)">
+    <div className={cn('grid h-full min-h-0 grid-cols-1', selected && activeEntry && MASTER_DETAIL_WIDE_COLS)}>
+      {/* LEFT: the focused server's config, or the unified fleet+catalog list. */}
+      <aside
+        className={cn(
+          'flex min-h-0 flex-col overflow-hidden',
+          selected && activeEntry && 'border-r border-(--ui-stroke-quaternary)'
+        )}
+      >
         {selected && activeEntry ? (
           <ServerConfig
             authing={authing === selected}
@@ -780,30 +785,32 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
         )}
       </aside>
 
-      {/* RIGHT: server output. Config is edited through the left pane and the
-          Add dialog, so logs get the whole column instead of a pinned strip. */}
-      <main className="flex min-h-0 flex-col overflow-hidden">
-        <header className="flex h-9 shrink-0 items-center gap-2 px-3">
-          <span className="min-w-0 truncate text-xs font-medium text-foreground">
-            {selected ? selected : m.allServers}
-          </span>
-          <span className="ml-auto flex shrink-0 items-center gap-1.5">
-            {(['stdio', 'agent'] as const).map(kind => (
-              <TextTab
-                active={logSource === kind}
-                className="h-5 px-0.5 text-[0.65rem]"
-                key={kind}
-                onClick={() => setLogSource(kind)}
-              >
-                {kind}
-              </TextTab>
-            ))}
-          </span>
-        </header>
-        <div className="min-h-0 flex-1 overflow-hidden">
-          <McpLogs emptyLabel={m.noOutput} server={selected} source={logSource} />
-        </div>
-      </main>
+      {/* RIGHT: the SELECTED server's output only. The all-servers firehose
+          that used to sit here was noise on the landing view — browsing the
+          fleet now gets the full width, and logs appear when you open a
+          server, scoped to it. */}
+      {selected && activeEntry && (
+        <main className="flex min-h-0 flex-col overflow-hidden">
+          <header className="flex h-9 shrink-0 items-center gap-2 px-3">
+            <span className="min-w-0 truncate text-xs font-medium text-foreground">{selected}</span>
+            <span className="ml-auto flex shrink-0 items-center gap-1.5">
+              {(['stdio', 'agent'] as const).map(kind => (
+                <TextTab
+                  active={logSource === kind}
+                  className="h-5 px-0.5 text-[0.65rem]"
+                  key={kind}
+                  onClick={() => setLogSource(kind)}
+                >
+                  {kind}
+                </TextTab>
+              ))}
+            </span>
+          </header>
+          <div className="min-h-0 flex-1 overflow-hidden">
+            <McpLogs emptyLabel={m.noOutput} server={selected} source={logSource} />
+          </div>
+        </main>
+      )}
 
       <McpAddDialog
         existingNames={names}
