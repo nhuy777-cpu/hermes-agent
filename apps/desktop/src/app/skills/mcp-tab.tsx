@@ -2,7 +2,6 @@ import { useStore } from '@nanostores/react'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { LogTail } from '@/components/chat/log-tail'
 import { PageLoader } from '@/components/page-loader'
 import { AvatarChip } from '@/components/ui/avatar-chip'
 import { Button } from '@/components/ui/button'
@@ -11,12 +10,10 @@ import { ErrorBanner } from '@/components/ui/error-state'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Switch } from '@/components/ui/switch'
-import { TextTab } from '@/components/ui/text-tab'
 import { Textarea } from '@/components/ui/textarea'
 import { Tip } from '@/components/ui/tooltip'
 import {
   getActionStatus,
-  getLogs,
   getMcpCatalog,
   getUsageAnalytics,
   type HermesGateway,
@@ -29,7 +26,6 @@ import {
   testMcpServer
 } from '@/hermes'
 import { type Translations, useI18n } from '@/i18n'
-import { startCompletionPoll } from '@/lib/completion-poll'
 import { compactNumber } from '@/lib/format'
 import { brandFor } from '@/lib/mcp-brands'
 import { estimateServerTokens, serverUsageCount } from '@/lib/mcp-cost'
@@ -45,7 +41,7 @@ import { $activeSessionId } from '@/store/session'
 
 import { hermesConfigCacheWriter, useHermesConfigRecord } from '../hooks/use-config-record'
 import { useOnProfileSwitch } from '../hooks/use-on-profile-switch'
-import { ICON_BUTTON, MASTER_DETAIL_WIDE_COLS } from '../master-detail'
+import { ICON_BUTTON } from '../master-detail'
 import { PanelAddButton, PanelEmpty } from '../overlays/panel'
 import { prettyName } from '../settings/helpers'
 import { useDeepLinkHighlight } from '../settings/use-deep-link-highlight'
@@ -241,7 +237,6 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
   // switch, so declared up here alongside the other per-profile view state.
   const [authing, setAuthing] = useState<null | string>(null)
 
-  const [logSource, setLogSource] = useState<'stdio' | 'agent'>('stdio')
 
   // Which server the left pane is configuring; null shows the fleet+catalog
   // list. Config is edited through the per-server pane and the Add dialog, so
@@ -683,14 +678,12 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
   const activeEntry = selected ? servers[selected] : undefined
 
   return (
-    <div className={cn('grid h-full min-h-0 grid-cols-1', selected && activeEntry && MASTER_DETAIL_WIDE_COLS)}>
-      {/* LEFT: the focused server's config, or the unified fleet+catalog list. */}
-      <aside
-        className={cn(
-          'flex min-h-0 flex-col overflow-hidden',
-          selected && activeEntry && 'border-r border-(--ui-stroke-quaternary)'
-        )}
-      >
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Single column: the focused server's config, or the unified
+          fleet+catalog list. Server output used to sit in a second column;
+          it was noise next to a config surface, so the tab is one pane wide
+          and logs live in the CLI (`hermes mcp logs`) / the gateway log. */}
+      <aside className="flex min-h-0 flex-1 flex-col overflow-hidden">
         {selected && activeEntry ? (
           <ServerConfig
             authing={authing === selected}
@@ -784,33 +777,6 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
           </div>
         )}
       </aside>
-
-      {/* RIGHT: the SELECTED server's output only. The all-servers firehose
-          that used to sit here was noise on the landing view — browsing the
-          fleet now gets the full width, and logs appear when you open a
-          server, scoped to it. */}
-      {selected && activeEntry && (
-        <main className="flex min-h-0 flex-col overflow-hidden">
-          <header className="flex h-9 shrink-0 items-center gap-2 px-3">
-            <span className="min-w-0 truncate text-xs font-medium text-foreground">{selected}</span>
-            <span className="ml-auto flex shrink-0 items-center gap-1.5">
-              {(['stdio', 'agent'] as const).map(kind => (
-                <TextTab
-                  active={logSource === kind}
-                  className="h-5 px-0.5 text-[0.65rem]"
-                  key={kind}
-                  onClick={() => setLogSource(kind)}
-                >
-                  {kind}
-                </TextTab>
-              ))}
-            </span>
-          </header>
-          <div className="min-h-0 flex-1 overflow-hidden">
-            <McpLogs emptyLabel={m.noOutput} server={selected} source={logSource} />
-          </div>
-        </main>
-      )}
 
       <McpAddDialog
         existingNames={names}
@@ -1304,73 +1270,8 @@ function McpCatalog({
   )
 }
 
-const LOG_POLL_MS = 2000
-
 // Cadence for polling a background (git-bootstrap) catalog install to completion.
 const CATALOG_INSTALL_POLL_MS = 1500
-
-const STDIO_MARKER_RE = /^===== \[.*\] starting MCP server '(.+)' =====$/
-
-// Keep only the stdio-log sections belonging to one server. The shared file
-// has no per-line tags — sections start at that server's session marker and
-// run until the next marker (any server's).
-function filterStdioSections(lines: string[], server: string): string[] {
-  const out: string[] = []
-  let inSection = false
-
-  for (const line of lines) {
-    const marker = STDIO_MARKER_RE.exec(line.trim())
-
-    if (marker) {
-      inSection = marker[1] === server
-    }
-
-    if (inSection) {
-      out.push(line)
-    }
-  }
-
-  return out
-}
-
-// The MCP output channel — Cursor's "MCP Logs" equivalent, pinned under the
-// editor. Scope follows the cursor-selected server (all servers otherwise);
-// source controls live in the pane header. Body is the app's tool-output
-// surface: CodeCardBody typography + the floating hover-reveal copy button.
-function McpLogs({
-  emptyLabel,
-  server,
-  source
-}: {
-  emptyLabel: string
-  server: null | string
-  source: 'stdio' | 'agent'
-}) {
-  const [lines, setLines] = useState<null | string[]>(null)
-  // A profile switch reroutes getLogs to the new backend; keying the effect on
-  // the active profile tears down the old poll (stop suppresses a late
-  // publish) so profile A's logs never flash in B.
-  const activeProfile = useStore($activeGatewayProfile)
-
-  useEffect(() => {
-    setLines(null)
-
-    return startCompletionPoll({
-      delayMs: LOG_POLL_MS,
-      poll: async () => {
-        const response =
-          source === 'stdio'
-            ? await getLogs({ file: 'mcp', lines: 500 })
-            : await getLogs({ file: 'agent', lines: 300, search: server ?? 'mcp' })
-
-        return source === 'stdio' && server ? filterStdioSections(response.lines, server) : response.lines
-      },
-      publish: setLines
-    })
-  }, [server, source, activeProfile])
-
-  return <LogTail emptyLabel={emptyLabel} lines={lines} />
-}
 
 // ---------------------------------------------------------------------------
 // Avatars + list rows
