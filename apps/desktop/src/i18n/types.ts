@@ -1099,6 +1099,22 @@ export interface Translations {
       importNoMatch: string
       importConfirm: string
       importConfirmMany: (count: number) => string
+      addTitle: string
+      addDesc: string
+      addConfirm: string
+      addOptional: string
+      addTransport: string
+      addTransportStdio: string
+      addTransportHttp: string
+      addTransportSse: string
+      addCommand: string
+      addArgs: string
+      addArgsHint: string
+      addEnv: string
+      addEnvHint: string
+      addUrl: string
+      addHeaders: string
+      addHeadersHint: string
     }
     model: {
       loading: string

@@ -2,8 +2,6 @@ import { useStore } from '@nanostores/react'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
-import { type CodeEditorApi } from '@/components/chat/code-editor'
-import { JsonDocumentEditor } from '@/components/chat/json-document-editor'
 import { LogTail } from '@/components/chat/log-tail'
 import { PageLoader } from '@/components/page-loader'
 import { AvatarChip } from '@/components/ui/avatar-chip'
@@ -37,8 +35,8 @@ import { brandFor } from '@/lib/mcp-brands'
 import { estimateServerTokens, serverUsageCount } from '@/lib/mcp-cost'
 import { completeMcpDesktopOAuth } from '@/lib/mcp-dashboard-oauth'
 import { type McpImportEntry, parseMcpImport } from '@/lib/mcp-import'
-import { NEEDS_AUTH_RE, PROBE_TTL_MS, probeCache, probeKey, serverFingerprint } from '@/lib/mcp-probe-cache'
-import { getServers, isServerShape, type McpServers, normalizeEntry } from '@/lib/mcp-servers'
+import { NEEDS_AUTH_RE, PROBE_TTL_MS, probeCache, probeKey } from '@/lib/mcp-probe-cache'
+import { getServers, type McpServers } from '@/lib/mcp-servers'
 import { countEnabledTools, isToolEnabled, toggleToolInServer } from '@/lib/mcp-tool-filter'
 import { cn } from '@/lib/utils'
 import { notify, notifyError } from '@/store/notifications'
@@ -47,41 +45,17 @@ import { $activeSessionId } from '@/store/session'
 
 import { hermesConfigCacheWriter, useHermesConfigRecord } from '../hooks/use-config-record'
 import { useOnProfileSwitch } from '../hooks/use-on-profile-switch'
-import { DetailPane, ICON_BUTTON, MASTER_DETAIL_WIDE_COLS } from '../master-detail'
+import { ICON_BUTTON, MASTER_DETAIL_WIDE_COLS } from '../master-detail'
 import { PanelAddButton, PanelEmpty } from '../overlays/panel'
 import { prettyName } from '../settings/helpers'
 import { useDeepLinkHighlight } from '../settings/use-deep-link-highlight'
 
-// The editor always speaks the ecosystem's mcp.json document format — names
-// are the JSON keys, transport is inferred from `command` vs `url` — so any
-// README's "add this to your mcp.json" snippet pastes verbatim. Storage stays
-// the config.yaml `mcp_servers` map (CLI/TUI untouched).
-const STARTER_ENTRY = { command: 'npx', args: ['-y', '@modelcontextprotocol/server-filesystem', '/path/to/dir'] }
+import { McpAddDialog } from './mcp-add-dialog'
 
-const pretty = (value: unknown) => JSON.stringify(value, null, 2)
-const wrapDoc = (entries: McpServers) => pretty({ mcpServers: entries })
-
-/** Accepts `{"mcpServers": {...}}` (ecosystem), a bare name→config map, or throws. */
-function parseServersDoc(raw: string): McpServers {
-  const parsed = JSON.parse(raw) as unknown
-
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('Expected a JSON object')
-  }
-
-  const doc = parsed as Record<string, unknown>
-
-  if (isServerShape(doc)) {
-    throw new Error('Wrap the server in {"mcpServers": {"name": …}} so it has a name')
-  }
-
-  const wrapper = doc.mcpServers ?? doc.mcp_servers
-
-  const map =
-    wrapper && typeof wrapper === 'object' && !Array.isArray(wrapper) ? (wrapper as McpServers) : (doc as McpServers)
-
-  return Object.fromEntries(Object.entries(map).map(([name, entry]) => [name, normalizeEntry(entry)]))
-}
+// Names are the config keys, transport is inferred from `command` vs `url` —
+// the same shape every MCP host's mcp.json uses, so a server documented
+// elsewhere maps field-for-field onto the Add form and the paste importer.
+// Storage stays the config.yaml `mcp_servers` map (CLI/TUI untouched).
 
 // The runtime gate is `enabled: false` — the same flag `hermes mcp` and the
 // agent's MCP loader read.
@@ -218,134 +192,6 @@ function statusLine(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Cursor → server-block mapping. A tolerant character walker (not JSON.parse —
-// it must work mid-edit) that finds each server's key+object range inside the
-// mcpServers container, so the editor cursor selects a server and the block
-// can be highlighted.
-// ---------------------------------------------------------------------------
-
-interface ServerBlock {
-  from: number
-  name: string
-  to: number
-}
-
-function scanServerBlocks(text: string): ServerBlock[] {
-  const skipString = (index: number): number => {
-    let i = index + 1
-
-    while (i < text.length) {
-      if (text[i] === '\\') {
-        i += 2
-      } else if (text[i] === '"') {
-        return i + 1
-      } else {
-        i++
-      }
-    }
-
-    return i
-  }
-
-  // Container: the object after "mcpServers"/"mcp_servers", else the doc root.
-  let start = -1
-  const wrapper = /"mcpServers"|"mcp_servers"/.exec(text)
-
-  if (wrapper) {
-    let i = wrapper.index + wrapper[0].length
-
-    while (i < text.length && text[i] !== '{') {
-      i++
-    }
-
-    start = i
-  } else {
-    start = text.indexOf('{')
-  }
-
-  if (start < 0 || text[start] !== '{') {
-    return []
-  }
-
-  const blocks: ServerBlock[] = []
-  let i = start + 1
-
-  while (i < text.length) {
-    const ch = text[i]
-
-    if (ch === '}') {
-      break
-    }
-
-    if (ch !== '"') {
-      i++
-
-      continue
-    }
-
-    const keyStart = i
-    const keyEnd = skipString(i)
-    const name = text.slice(keyStart + 1, keyEnd - 1)
-    i = keyEnd
-
-    while (i < text.length && text[i] !== ':') {
-      i++
-    }
-
-    i++
-
-    while (i < text.length && /\s/.test(text[i])) {
-      i++
-    }
-
-    if (text[i] === '{') {
-      let depth = 0
-      let j = i
-
-      while (j < text.length) {
-        const c = text[j]
-
-        if (c === '"') {
-          j = skipString(j)
-
-          continue
-        }
-
-        if (c === '{') {
-          depth++
-        } else if (c === '}') {
-          depth--
-
-          if (depth === 0) {
-            j++
-
-            break
-          }
-        }
-
-        j++
-      }
-
-      blocks.push({ from: keyStart, name, to: j })
-      i = j
-    } else {
-      // Non-object value — skip to the next sibling.
-      while (i < text.length && text[i] !== ',' && text[i] !== '}') {
-        if (text[i] === '"') {
-          i = skipString(i)
-
-          continue
-        }
-
-        i++
-      }
-    }
-  }
-
-  return blocks
-}
-
 export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; profile?: ProfileScope }) {
   const { t } = useI18n()
   const m = t.settings.mcp
@@ -395,36 +241,15 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
   // switch, so declared up here alongside the other per-profile view state.
   const [authing, setAuthing] = useState<null | string>(null)
 
-  // Master document draft. `docVersion` remounts the editor when the draft is
-  // regenerated programmatically (list-side mutations); `dirty` guards user
-  // edits from being clobbered by those regenerations.
-  const [draft, setDraft] = useState('')
-  const [dirty, setDirty] = useState(false)
-  const [docVersion, setDocVersion] = useState(0)
   const [logSource, setLogSource] = useState<'stdio' | 'agent'>('stdio')
 
-  // Selection IS the editor cursor: whichever server block contains it is the
-  // configured server on the left. Cursor outside every block → the list.
-  const editorApi = useRef<CodeEditorApi | null>(null)
-  const [cursor, setCursor] = useState(0)
-  const blocks = useMemo(() => scanServerBlocks(draft), [draft])
+  // Which server the left pane is configuring; null shows the fleet+catalog
+  // list. Config is edited through the per-server pane and the Add dialog, so
+  // selection is plain state.
+  const [selected, setSelected] = useState<null | string>(null)
+  const [adding, setAdding] = useState(false)
 
-  const activeBlock = useMemo(
-    () => blocks.find(block => cursor >= block.from && cursor <= block.to) ?? null,
-    [blocks, cursor]
-  )
-
-  const selected = activeBlock?.name ?? null
-
-  const focusServer = (name: string) => {
-    const block = blocks.find(b => b.name === name)
-
-    if (block) {
-      // Land just inside the key so the block claims the cursor.
-      editorApi.current?.setCursor(block.from + 1)
-      setCursor(block.from + 1)
-    }
-  }
+  const focusServer = (name: string) => setSelected(name)
 
   const servers = useMemo(() => getServers(config ?? null), [config])
 
@@ -466,61 +291,6 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
     return match?.description ?? null
   }
 
-  const resetDraft = (entries: McpServers) => {
-    setDraft(wrapDoc(entries))
-    setDirty(false)
-    setDocVersion(version => version + 1)
-  }
-
-  // Mirror a list-side mutation into a dirty draft without losing the user's
-  // other edits. Unparseable drafts are left alone — save resolves the race.
-  const patchDraft = (mutate: (doc: McpServers) => McpServers) => {
-    try {
-      setDraft(wrapDoc(mutate(parseServersDoc(draft))))
-      setDocVersion(version => version + 1)
-    } catch {
-      // Draft is mid-edit / invalid JSON; the user's text wins until save.
-    }
-  }
-
-  // Seed the editor draft from config exactly once, the first time it lands.
-  // Background refetches thereafter update the list but must not clobber an
-  // in-progress edit — the draft is the user's until they save or reset.
-  const draftSeeded = useRef(false)
-
-  // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
-  useEffect(() => {
-    // profilePending: config still holds the PREVIOUS profile's record right
-    // after a switch — seeding from it would latch the wrong profile's doc.
-    if (!config || profilePending) {
-      return
-    }
-
-    if (!draftSeeded.current) {
-      draftSeeded.current = true
-      resetDraft(getServers(config))
-
-      return
-    }
-
-    if (dirty || names.length === 0) {
-      return
-    }
-
-    // Heal the early-boot race: the first config snapshot can land before the
-    // backend has mcp_servers assembled, seeding (and latching) an empty doc
-    // while later refetches fill the list — saving would then wipe the real
-    // servers. A PRISTINE empty draft reseeds when servers arrive; any user
-    // edit (dirty) still always wins.
-    try {
-      if (Object.keys(parseServersDoc(draft)).length === 0) {
-        resetDraft(servers)
-      }
-    } catch {
-      // Mid-edit / invalid JSON — the user's text wins.
-    }
-  }, [config, dirty, draft, names, profilePending, servers])
-
   // Bumped on every profile switch. Async probe/auth completions capture the
   // epoch at call time and bail if it changed, so a slow profile-A request can't
   // write its result into profile B's state after the user switched.
@@ -536,20 +306,16 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
   )
 
   // A profile switch invalidates the config query (see store/profile.ts), which
-  // refetches the new backend's mcp.json. Reset ALL per-profile view state — the
-  // draft (incl. a dirty one, so profile A's edits can't be saved into B), its
-  // seed latch, probes, and cursor — so everything reseeds for the new profile.
-  // The probe cache is already profile-keyed, so this just forces a re-probe.
+  // refetches the new backend's server map. Reset ALL per-profile view state —
+  // selection, probes, auth — so everything reseeds for the new profile. The
+  // probe cache is already profile-keyed, so this just forces a re-probe.
   useOnProfileSwitch(() => {
     profileEpoch.current += 1
-    draftSeeded.current = false
     setProbes({})
     setToolCalls30d(null)
-    setCursor(0)
+    setSelected(null)
+    setAdding(false)
     setAuthing(null)
-    setDirty(false)
-    setDraft('')
-    setDocVersion(version => version + 1)
     // Mark stale until the config query replaces profile A's data — guards
     // sidebar mutations from persisting A's server list into B mid-refetch.
     staleConfigStamp.current = configUpdatedAt
@@ -579,7 +345,7 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
     elementId: serverName => `mcp-server-${serverName}`,
     onResolve: focusServer,
     param: 'server',
-    ready: serverName => blocks.some(block => block.name === serverName)
+    ready: serverName => serverName in servers
   })
 
   const runProbe = async (serverName: string) => {
@@ -640,16 +406,6 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
         // The endpoint persisted `auth: oauth` — mirror it locally.
         const nextServers = { ...servers, [serverName]: { ...servers[serverName], auth: 'oauth' } }
         setConfig(current => (current ? { ...current, mcp_servers: nextServers } : current))
-
-        // Mirror `auth: oauth` into the editor too. If we only reset a clean
-        // draft, a dirty draft keeps the pre-auth text and the next Save would
-        // drop the freshly-persisted auth field — so patch the dirty draft in
-        // place instead of clobbering the user's other edits.
-        if (dirty) {
-          patchDraft(doc => (doc[serverName] ? { ...doc, [serverName]: { ...doc[serverName], auth: 'oauth' } } : doc))
-        } else {
-          resetDraft(nextServers)
-        }
 
         notify({
           kind: 'success',
@@ -756,23 +512,11 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
   }
 
   // A catalog install wrote a new server into config.yaml on the backend —
-  // refresh the catalog (installed state) and the config, then RECONCILE THE
-  // EDITOR DRAFT with the fresh servers. Without this a dirty draft (or even a
-  // clean one the seed never refreshes) would omit the new server, and the next
-  // whole-map Save would silently drop it.
+  // refresh the catalog (installed state) and the config so the fleet list
+  // picks the new entry up, then reload live sessions.
   const onCatalogInstalled = async () => {
     void catalogQuery.refetch()
-    const { data } = await refetchConfig()
-    const nextServers = getServers(data ?? null)
-
-    if (dirty) {
-      // Keep the user's in-progress edits (doc wins), add any server the install
-      // introduced that the draft doesn't have yet.
-      patchDraft(doc => ({ ...nextServers, ...doc }))
-    } else {
-      resetDraft(nextServers)
-    }
-
+    await refetchConfig()
     void silentReload()
   }
 
@@ -800,12 +544,6 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
         return
       }
 
-      if (dirty) {
-        patchDraft(doc => (doc[serverName] ? { ...doc, [serverName]: withEnabled(doc[serverName], enabled) } : doc))
-      } else {
-        resetDraft({ ...servers, [serverName]: next })
-      }
-
       if (enabled) {
         void runProbe(serverName)
       }
@@ -828,17 +566,7 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
     const next = toggleToolInServer(base, toolName)
 
     try {
-      if (!(await persist({ ...servers, [serverName]: next }))) {
-        return
-      }
-
-      if (dirty) {
-        patchDraft(doc =>
-          doc[serverName] ? { ...doc, [serverName]: toggleToolInServer(doc[serverName], toolName) } : doc
-        )
-      } else {
-        resetDraft({ ...servers, [serverName]: next })
-      }
+      await persist({ ...servers, [serverName]: next })
     } catch (err) {
       notifyError(err, m.saveFailed)
     }
@@ -859,18 +587,7 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
         return
       }
 
-      if (dirty) {
-        patchDraft(doc => {
-          const patched = { ...doc }
-          delete patched[serverName]
-
-          return patched
-        })
-      } else {
-        resetDraft(next)
-      }
-
-      setCursor(0)
+      setSelected(null)
     } catch (err) {
       notifyError(err, m.removeFailed)
     } finally {
@@ -878,132 +595,66 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
     }
   }
 
-  // "+" seeds a starter entry into the document (unique key) and marks it
-  // dirty — naming happens in the editor, like every other mcp.json.
-  const addServer = () => {
-    if (profilePending) {
-      return
-    }
-
-    let base: McpServers
-
-    try {
-      base = parseServersDoc(draft)
-    } catch {
-      base = { ...servers }
-    }
-
-    let key = 'my-server'
-
-    for (let i = 2; key in base; i++) {
-      key = `my-server-${i}`
-    }
-
-    const nextDraft = wrapDoc({ ...base, [key]: STARTER_ENTRY })
-    setDraft(nextDraft)
-    setDirty(true)
-    setDocVersion(version => version + 1)
-
-    // Focus the fresh block once the editor remounts with the new doc.
-    const from = nextDraft.indexOf(`"${key}"`)
-
-    if (from >= 0) {
-      requestAnimationFrame(() => {
-        editorApi.current?.setCursor(from + 1)
-        setCursor(from + 1)
-      })
-    }
-  }
-
-  // Paste-anything import: merge parsed entries into the draft exactly like
-  // addServer seeds its starter — dirty draft, unique keys, focus the first
-  // new block. Saving stays an explicit step, so the user can fix placeholder
-  // env values (YOUR_KEY, …) in the editor first.
-  const importServers = (entries: McpImportEntry[]) => {
+  // Write new entries straight through: the whole-map persist is the single
+  // save path, so both the Add dialog and the paste importer land servers the
+  // same way the catalog install does — no intermediate unsaved state.
+  // Names already taken get a `-2`, `-3`, … suffix rather than overwriting.
+  const mergeServers = async (entries: { config: Record<string, unknown>; name: string }[]) => {
     if (profilePending || entries.length === 0) {
       return
     }
 
-    let base: McpServers
-
-    try {
-      base = parseServersDoc(draft)
-    } catch {
-      base = { ...servers }
-    }
-
+    let next: McpServers = { ...servers }
     let firstKey: null | string = null
 
     for (const entry of entries) {
       let key = entry.name
 
-      for (let i = 2; key in base; i++) {
+      for (let i = 2; key in next; i++) {
         key = `${entry.name}-${i}`
       }
 
-      base = { ...base, [key]: entry.config }
+      next = { ...next, [key]: entry.config }
       firstKey ??= key
-    }
-
-    const nextDraft = wrapDoc(base)
-    setDraft(nextDraft)
-    setDirty(true)
-    setDocVersion(version => version + 1)
-
-    if (firstKey) {
-      const from = nextDraft.indexOf(`"${firstKey}"`)
-
-      if (from >= 0) {
-        requestAnimationFrame(() => {
-          editorApi.current?.setCursor(from + 1)
-          setCursor(from + 1)
-        })
-      }
-    }
-  }
-
-  const saveDoc = async () => {
-    if (profilePending) {
-      return
-    }
-
-    let entries: McpServers
-
-    try {
-      entries = parseServersDoc(draft)
-    } catch (err) {
-      notifyError(err, m.invalidJson)
-
-      return
     }
 
     setSaving(true)
 
-    const prevServers = servers
-
     try {
-      if (!(await persist(entries))) {
+      if (!(await persist(next))) {
         return
       }
 
-      resetDraft(entries)
-      // Keep only probes for servers that survived AND kept the same config;
-      // removed OR edited entries drop their probe so the mount effect re-probes
-      // the new shape (the cache also misses on the changed fingerprint).
-      setProbes(current =>
-        Object.fromEntries(
-          Object.entries(current).filter(
-            ([name]) =>
-              name in entries && serverFingerprint(entries[name]) === serverFingerprint(prevServers[name] ?? {})
-          )
-        )
-      )
-      notify({ kind: 'success', title: m.savedTitle, message: m.savedMessage('mcp.json') })
+      notify({
+        kind: 'success',
+        title: m.savedTitle,
+        message: m.savedMessage(entries.length === 1 ? (firstKey ?? '') : String(entries.length))
+      })
+
+      if (firstKey) {
+        setSelected(firstKey)
+        void runProbe(firstKey)
+      }
     } catch (err) {
       notifyError(err, m.saveFailed)
     } finally {
       setSaving(false)
     }
+  }
+
+  const addServer = () => {
+    if (!profilePending) {
+      setAdding(true)
+    }
+  }
+
+  const handleAdd = async (name: string, config: Record<string, unknown>) => {
+    await mergeServers([{ config, name }])
+    setAdding(false)
+  }
+
+  const importServers = (entries: McpImportEntry[]) => {
+    void mergeServers(entries.map(entry => ({ config: entry.config, name: entry.name })))
   }
 
   // Cached data paints instantly; a spinner only ever shows on the first-ever
@@ -1027,23 +678,9 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
     return <PageLoader className="min-h-24" label={configLoading ? m.loading : t.skills.loading} />
   }
 
-  // Selection may reference an unsaved block (freshly pasted) — fall back to
-  // the draft's parsed entry so the config pane can still describe it.
-  const savedEntry = selected ? servers[selected] : undefined
-
-  const draftEntry = (() => {
-    if (!selected || savedEntry) {
-      return undefined
-    }
-
-    try {
-      return parseServersDoc(draft)[selected]
-    } catch {
-      return undefined
-    }
-  })()
-
-  const activeEntry = savedEntry ?? draftEntry
+  // Every entry the pane can show is already persisted — adds and imports save
+  // before they select, so there is no unsaved-draft case to fall back to.
+  const activeEntry = selected ? servers[selected] : undefined
 
   return (
     <div className={cn('grid h-full min-h-0 grid-cols-1', MASTER_DETAIL_WIDE_COLS)}>
@@ -1057,13 +694,13 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
             entry={activeEntry}
             name={selected}
             onAuthenticate={() => void authenticate(selected)}
-            onBack={() => setCursor(0)}
+            onBack={() => setSelected(null)}
             onProbe={() => void runProbe(selected)}
             onRemove={() => void removeServer(selected)}
             onToggle={checked => void setServerEnabled(selected, checked)}
             onToggleTool={toolName => void toggleTool(selected, toolName)}
             probe={probes[selected]}
-            saved={savedEntry !== undefined}
+            saved
             saving={saving}
           />
         ) : (
@@ -1143,60 +780,38 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
         )}
       </aside>
 
-      {/* RIGHT: the mcp.json editor, logs hard-pinned below. */}
+      {/* RIGHT: server output. Config is edited through the left pane and the
+          Add dialog, so logs get the whole column instead of a pinned strip. */}
       <main className="flex min-h-0 flex-col overflow-hidden">
-        <JsonDocumentEditor
-          apiRef={editorApi}
-          disabled={saving}
-          filePath="mcp.json"
-          header={
-            <>
-              mcp.json
-              {dirty && <span aria-hidden className="size-1.5 rounded-full bg-current/60" />}
-            </>
-          }
-          highlight={activeBlock ? { from: activeBlock.from, to: activeBlock.to } : null}
-          initialValue={draft}
-          onChange={next => {
-            setDraft(next)
-            setDirty(true)
-          }}
-          onCursorChange={setCursor}
-          onFormatJsonError={error => notifyError(new Error(error), m.invalidJson)}
-          onSave={() => void saveDoc()}
-          remountKey={docVersion}
-          trailing={
-            <Button disabled={saving || !dirty} onClick={() => void saveDoc()} size="xs">
-              {saving ? t.common.saving : t.common.save}
-            </Button>
-          }
-        />
-        <DetailPane
-          actions={
-            <span className="flex items-center gap-1.5">
-              {(['stdio', 'agent'] as const).map(kind => (
-                <TextTab
-                  active={logSource === kind}
-                  className="h-5 px-0.5 text-[0.65rem]"
-                  key={kind}
-                  onClick={() => setLogSource(kind)}
-                >
-                  {kind}
-                </TextTab>
-              ))}
-            </span>
-          }
-          defaultHeight={176}
-          id="mcp-logs"
-          title={
-            <span className="text-[0.68rem] font-normal text-muted-foreground/60">
-              {selected && savedEntry ? selected : m.allServers}
-            </span>
-          }
-        >
-          <McpLogs emptyLabel={m.noOutput} server={selected && savedEntry ? selected : null} source={logSource} />
-        </DetailPane>
+        <header className="flex h-9 shrink-0 items-center gap-2 px-3">
+          <span className="min-w-0 truncate text-xs font-medium text-foreground">
+            {selected ? selected : m.allServers}
+          </span>
+          <span className="ml-auto flex shrink-0 items-center gap-1.5">
+            {(['stdio', 'agent'] as const).map(kind => (
+              <TextTab
+                active={logSource === kind}
+                className="h-5 px-0.5 text-[0.65rem]"
+                key={kind}
+                onClick={() => setLogSource(kind)}
+              >
+                {kind}
+              </TextTab>
+            ))}
+          </span>
+        </header>
+        <div className="min-h-0 flex-1 overflow-hidden">
+          <McpLogs emptyLabel={m.noOutput} server={selected} source={logSource} />
+        </div>
       </main>
+
+      <McpAddDialog
+        existingNames={names}
+        onAdd={handleAdd}
+        onClose={() => setAdding(false)}
+        open={adding}
+        saving={saving}
+      />
     </div>
   )
 }
