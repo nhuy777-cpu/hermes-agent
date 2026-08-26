@@ -332,7 +332,14 @@ def _check_fn_cached(fn: Callable) -> bool:
 
         # No recent success (or grace expired) — honor the failure; logged so silent tool
         # loss in quiet mode (subagents) is diagnosable.
-        logger.warning(
+        #
+        # Level splits on WHY it failed. A check that RETURNED False is the designed
+        # "not configured here" answer — no FAL_KEY, no X credentials — and it repeats
+        # every single turn for every unconfigured backend, which buried real warnings.
+        # That is information. A check that RAISED is a defect in the check itself and
+        # stays a warning.
+        logger.log(
+            logging.WARNING if outcome == "raised" else logging.INFO,
             "check_fn %s %s; dependent tools will be unavailable this turn", _fn_label(fn), outcome)
         _check_fn_cache[cache_key] = (now, False)
         return False
