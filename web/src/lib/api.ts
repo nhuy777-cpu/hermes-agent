@@ -343,10 +343,23 @@ export interface Workspace {
   id: string;
   name: string;
   path: string;
-  memory_enabled: boolean;
+  /** File tools refuse paths outside the folder (terminal is not confined). */
+  strict: boolean;
   created_at: number;
   /** False when the folder was moved, deleted, or is on an unplugged drive. */
   exists: boolean;
+}
+
+export interface WorkspaceBrowseEntry {
+  name: string;
+  path: string;
+}
+
+export interface WorkspaceBrowse {
+  path: string;
+  /** null at a filesystem root; "" means "back to the drive list" on Windows. */
+  parent: string | null;
+  dirs: WorkspaceBrowseEntry[];
 }
 
 export interface WorkspaceDeliverable {
@@ -357,8 +370,10 @@ export interface WorkspaceDeliverable {
 }
 
 export interface WorkspaceDeliverables {
-  workspace_id: string;
+  workspace_id?: string;
   root: string;
+  /** Epoch seconds the listing was filtered from (0 = whole folder). */
+  since: number;
   /** True when the folder was too large to walk fully; the list is partial. */
   truncated: boolean;
   files: WorkspaceDeliverable[];
@@ -429,7 +444,7 @@ export const api = {
   // tools. Not profile-scoped — a folder on this machine is the same folder
   // whichever management profile is selected.
   listWorkspaces: () => fetchJSON<{ workspaces: Workspace[] }>("/api/workspaces"),
-  createWorkspace: (body: { name: string; path: string; memory_enabled?: boolean }) =>
+  createWorkspace: (body: { name: string; path: string; strict?: boolean }) =>
     fetchJSON<Workspace>("/api/workspaces", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -437,7 +452,7 @@ export const api = {
     }),
   updateWorkspace: (
     id: string,
-    body: { name?: string; memory_enabled?: boolean },
+    body: { name?: string; strict?: boolean },
   ) =>
     fetchJSON<Workspace>(`/api/workspaces/${encodeURIComponent(id)}`, {
       method: "PATCH",
@@ -449,10 +464,12 @@ export const api = {
       `/api/workspaces/${encodeURIComponent(id)}`,
       { method: "DELETE" },
     ),
-  getWorkspaceDeliverables: (id: string, limit = 50) =>
+  getWorkspaceDeliverables: (id: string, limit = 50, since = 0) =>
     fetchJSON<WorkspaceDeliverables>(
-      `/api/workspaces/${encodeURIComponent(id)}/deliverables?limit=${limit}`,
+      `/api/workspaces/${encodeURIComponent(id)}/deliverables?limit=${limit}&since=${since}`,
     ),
+  browseWorkspaceFolders: (path = "") =>
+    fetchJSON<WorkspaceBrowse>(`/api/workspaces/browse?path=${encodeURIComponent(path)}`),
   getSessionLatestDescendant: (id: string, profile = getManagementProfile()) =>
     fetchJSON<SessionLatestDescendantResponse>(
       appendProfileParam(

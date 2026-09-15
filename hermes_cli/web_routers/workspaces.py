@@ -13,6 +13,8 @@ config migrations.
 """
 
 import json
+import os
+import string
 import time
 import uuid
 from pathlib import Path
@@ -118,6 +120,43 @@ def find_workspace(workspace_id: str) -> Optional[dict[str, Any]]:
     if not wanted:
         return None
     return next((e for e in _read_all() if e.get("id") == wanted), None)
+
+
+def _windows_drives() -> list[dict[str, str]]:
+    """Mounted drive letters from the kernel bitmask: probing ``X:\`` per letter
+    stalls on a disconnected network drive or an empty card reader."""
+    import ctypes
+
+    mask = ctypes.windll.kernel32.GetLogicalDrives()
+    return [
+        {"name": f"{letter}:\\", "path": f"{letter}:\\"}
+        for index, letter in enumerate(string.ascii_uppercase) if mask & (1 << index)]
+
+
+@router.get("/api/workspaces/browse")
+async def browse_folders(path: str = "") -> dict[str, Any]:
+    """Subfolders of *path* for the dashboard's folder picker (the browser has no
+    native directory dialog that yields a server-side path). Empty path lists the
+    roots: drive letters on Windows, ``/`` elsewhere. Hidden and unreadable
+    folders are skipped rather than failing the whole listing."""
+    text = (path or "").strip()
+    if not text:
+        if os.name == "nt":
+            return {"path": "", "parent": None, "dirs": _windows_drives()}
+        text = "/"
+    root = Path(_validated_dir(text))
+    dirs: list[dict[str, str]] = []
+    try:
+        for child in sorted(root.iterdir(), key=lambda p: p.name.lower()):
+            try:
+                if child.is_dir() and not child.name.startswith("."):
+                    dirs.append({"name": child.name, "path": str(child)})
+            except OSError:
+                continue
+    except OSError as exc:
+        raise HTTPException(400, f"Cannot list {root}: {exc}") from exc
+    parent = str(root.parent) if root.parent != root else ("" if os.name == "nt" else None)
+    return {"path": str(root), "parent": parent, "dirs": dirs}
 
 
 @router.get("/api/workspaces")
