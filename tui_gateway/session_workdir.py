@@ -192,13 +192,40 @@ def _session_source(session: dict | None) -> str:
     return source or _resolve_session_platform()
 
 
+def _strict_root_for_cwd(cwd: str) -> str | None:
+    """The project folder that confines ``cwd``, or None. Only a project marked strict confines; the
+    innermost folder of that project owning cwd is the root (nested projects resolve innermost, matching
+    ``project_for_path``)."""
+    if not str(cwd or "").strip():
+        return None
+    try:
+        from hermes_cli import projects_db as pdb
+        with pdb.connect_closing() as conn:
+            project = pdb.project_for_path(conn, cwd)
+        if project is None or not project.strict:
+            return None
+        target = os.path.normcase(os.path.abspath(cwd))
+        owners = [
+            f.path for f in project.folders
+            if target == os.path.normcase(os.path.abspath(f.path))
+            or target.startswith(os.path.normcase(os.path.abspath(f.path)).rstrip("/\\") + os.sep)]
+        return max(owners, key=len) if owners else (project.primary_path or None)
+    except Exception:
+        logger.debug("failed to resolve strict root for cwd", exc_info=True)
+        return None
+
+
 def _register_session_cwd(session: dict | None) -> None:
     if not session:
         return
     with contextlib.suppress(Exception):
         from tools.terminal_tool import register_task_env_overrides
         cwd, cwd_source = _terminal_task_cwd_with_source(session)
-        register_task_env_overrides(session["session_key"], {"cwd": cwd, "cwd_source": cwd_source})
+        overrides = {"cwd": cwd, "cwd_source": cwd_source}
+        # Local backend only: a container backend is its own sandbox and its cwd is not a host path.
+        if _is_local_terminal_backend() and (strict_root := _strict_root_for_cwd(cwd)):
+            overrides["strict_root"] = strict_root
+        register_task_env_overrides(session["session_key"], overrides)
 
 
 def _workdir_row_model_config(session: dict) -> tuple[str, dict]:

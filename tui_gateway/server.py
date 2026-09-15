@@ -2025,7 +2025,8 @@ def _project_info_for_cwd(cwd: str) -> dict | None:
         with pdb.connect_closing() as conn:
             project = pdb.project_for_path(conn, cwd)
         return None if project is None else {
-            "id": project.id, "slug": project.slug, "name": project.name, "primary_path": project.primary_path}
+            "id": project.id, "slug": project.slug, "name": project.name, "primary_path": project.primary_path,
+            "strict": bool(project.strict)}
     except Exception:
         logger.debug("failed to resolve project for cwd", exc_info=True)
         return None
