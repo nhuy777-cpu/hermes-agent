@@ -501,6 +501,12 @@ async def pty_ws(ws: WebSocket) -> None:
                 ws, f"Chat unavailable: workspace folder is gone ({workspace_path})")
             return
         env["TERMINAL_CWD"] = workspace_path
+        # A strict workspace confines the agent's file tools to the folder
+        # (tools/file_tools_paths._strict_workspace_root reads this).
+        if entry.get("strict"):
+            env["HERMES_STRICT_ROOT"] = workspace_path
+        else:
+            env.pop("HERMES_STRICT_ROOT", None)
 
     attach_token = ws.query_params.get("attach") or None
     registry_resume = raw_resume
@@ -512,8 +518,11 @@ async def pty_ws(ws: WebSocket) -> None:
         # spawns, so a token that ignored it would re-attach the caller to a live PTY
         # still rooted at the previous folder — the picker would appear to work while
         # the agent kept writing somewhere else.
+        # Strict is baked into the env at spawn too, so flipping it must not
+        # re-attach to the PTY spawned under the previous setting.
         attach_token = (
-            f"{attach_token}\0{profile or ''}\0{registry_resume or ''}\0{workspace_id}")
+            f"{attach_token}\0{profile or ''}\0{registry_resume or ''}\0{workspace_id}"
+            f"\0{'strict' if workspace_strict else ''}")
 
     def _spawn():
         return PtyBridge.spawn(argv, cwd=cwd, env=env)

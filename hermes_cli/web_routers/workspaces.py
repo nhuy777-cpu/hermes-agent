@@ -38,12 +38,13 @@ _SKIP_DIRS = {
 class WorkspaceCreate(BaseModel):
     name: str
     path: str
-    memory_enabled: bool = True
+    # Confine the chat's file tools to this folder (HERMES_STRICT_ROOT on the PTY).
+    strict: bool = False
 
 
 class WorkspaceUpdate(BaseModel):
     name: Optional[str] = None
-    memory_enabled: Optional[bool] = None
+    strict: Optional[bool] = None
 
 
 def _store_path() -> Path:
@@ -135,7 +136,7 @@ async def create_workspace(body: WorkspaceCreate) -> dict[str, Any]:
         "id": uuid.uuid4().hex[:12],
         "name": name,
         "path": path,
-        "memory_enabled": bool(body.memory_enabled),
+        "strict": bool(body.strict),
         "created_at": time.time(),
     }
     entries.append(entry)
@@ -154,8 +155,8 @@ async def update_workspace(workspace_id: str, body: WorkspaceUpdate) -> dict[str
         if not renamed:
             raise HTTPException(400, "Name cannot be empty")
         entry["name"] = renamed
-    if body.memory_enabled is not None:
-        entry["memory_enabled"] = bool(body.memory_enabled)
+    if body.strict is not None:
+        entry["strict"] = bool(body.strict)
     _write_all(entries)
     return _public(entry)
 
@@ -171,21 +172,13 @@ async def delete_workspace(workspace_id: str) -> dict[str, Any]:
     return {"ok": True, "removed": workspace_id}
 
 
-@router.get("/api/workspaces/{workspace_id}/deliverables")
-async def workspace_deliverables(workspace_id: str, limit: int = 50) -> dict[str, Any]:
-    """Recently touched files in the workspace, newest first.
+def scan_deliverables(root: Path, *, limit: int = 50, since: float = 0.0) -> dict[str, Any]:
+    """Files under *root* modified at or after *since* (epoch seconds), newest first.
 
-    Mirrors Cowork's deliverables pane: what the agent produced this session is
-    almost always what was written most recently, and mtime needs no git repo
-    and no bookkeeping of our own.
+    Mirrors Cowork's deliverables pane: with ``since`` set to the session's start
+    this is "what the agent produced this session", and it works on any folder —
+    no git repo needed, so a documents folder gets the same view a repo does.
     """
-    entry = find_workspace(workspace_id)
-    if entry is None:
-        raise HTTPException(404, "No such workspace")
-    root = Path(entry.get("path") or "")
-    if not root.is_dir():
-        raise HTTPException(410, f"Folder is gone: {root}")
-
     capped = max(1, min(int(limit or 50), _MAX_DELIVERABLES))
     found: list[tuple[float, dict[str, Any]]] = []
     scanned = 0
@@ -206,6 +199,8 @@ async def workspace_deliverables(workspace_id: str, limit: int = 50) -> dict[str
             stat = path.stat()
         except (OSError, ValueError):
             continue
+        if stat.st_mtime < since:
+            continue
         found.append((stat.st_mtime, {
             "name": path.name,
             "rel_path": str(path.relative_to(root)),
@@ -215,8 +210,27 @@ async def workspace_deliverables(workspace_id: str, limit: int = 50) -> dict[str
 
     found.sort(key=lambda item: item[0], reverse=True)
     return {
-        "workspace_id": workspace_id,
         "root": str(root),
+        "since": since,
         "truncated": truncated,
         "files": [item[1] for item in found[:capped]],
     }
+
+
+@router.get("/api/workspaces/deliverables")
+async def deliverables_for_path(path: str, limit: int = 50, since: float = 0.0) -> dict[str, Any]:
+    """Path-addressed variant for surfaces that already know the folder (the
+    desktop's session cwd) and keep no workspace bookmark."""
+    root = Path(_validated_dir(path))
+    return scan_deliverables(root, limit=limit, since=since)
+
+
+@router.get("/api/workspaces/{workspace_id}/deliverables")
+async def workspace_deliverables(workspace_id: str, limit: int = 50, since: float = 0.0) -> dict[str, Any]:
+    entry = find_workspace(workspace_id)
+    if entry is None:
+        raise HTTPException(404, "No such workspace")
+    root = Path(entry.get("path") or "")
+    if not root.is_dir():
+        raise HTTPException(410, f"Folder is gone: {root}")
+    return {"workspace_id": workspace_id, **scan_deliverables(root, limit=limit, since=since)}
