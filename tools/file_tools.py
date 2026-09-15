@@ -653,9 +653,15 @@ def read_file_tool(path: str, offset: int = 1, limit: int = DEFAULT_READ_LIMIT, 
 # ── Shared write/patch plumbing ──────────────────────────────────────────
 
 def _resolve_or_none(filepath: str, task_id: str) -> str | None:
-    """Task-resolved path string, or None when resolution fails for any reason."""
+    """Task-resolved path string, or None when resolution fails for any reason.
+
+    A strict-workspace denial is not a resolution failure: it must propagate,
+    otherwise the ``_resolved or path`` fallback in the writers would land the
+    edit at the raw path and silently defeat the confinement."""
     try:
         return str(_resolve_path_for_task(filepath, task_id))
+    except PermissionError:
+        raise
     except Exception:
         return None
 

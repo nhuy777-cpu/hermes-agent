@@ -169,12 +169,51 @@ def _resolve_base_dir(
     return _anchor(_host_text(root or os.getcwd(), container_paths), os.getcwd, container_paths)
 
 
+def _strict_workspace_root(task_id: str = "default") -> str | None:
+    """Folder the task's file tools are confined to, or ``None`` when unrestricted.
+
+    Set per session by the Desktop/TUI gateway (``strict_root`` task override) or
+    per PTY by the dashboard chat socket (``HERMES_STRICT_ROOT``). Container
+    backends are already a sandbox, so the host-path check does not apply there.
+    """
+    try:
+        from tools.terminal_tool import resolve_task_overrides
+
+        root = resolve_task_overrides(task_id).get("strict_root")
+    except Exception:
+        root = None
+    root = _sentinel_free_abs_cwd(root if isinstance(root, str) else None)
+    return root or _sentinel_free_abs_cwd(os.environ.get("HERMES_STRICT_ROOT"))
+
+
 def _resolve_path_for_task(filepath: str, task_id: str = "default") -> Path | PurePosixPath:
     """Resolve *filepath* against the task's absolute base directory
-    (absolute inputs are returned resolved-but-unanchored)."""
+    (absolute inputs are returned resolved-but-unanchored).
+
+    Raises ``PermissionError`` when the task has a strict workspace root and the
+    resolved path falls outside it — the one chokepoint every file tool routes
+    through, so a workspace marked strict cannot be escaped with an absolute
+    path, ``..``, or a symlink.
+    """
     container_paths = _uses_container_paths(task_id)
-    return _anchor(_host_text(filepath, container_paths),
-                   lambda: _resolve_base_dir(task_id, container_paths=container_paths), container_paths)
+    resolved = _anchor(_host_text(filepath, container_paths),
+                       lambda: _resolve_base_dir(task_id, container_paths=container_paths), container_paths)
+    if container_paths:
+        return resolved
+    strict_root = _strict_workspace_root(task_id)
+    if strict_root is None:
+        return resolved
+    root = Path(strict_root).resolve()
+    try:
+        inside = Path(resolved).resolve().is_relative_to(root)
+    except (OSError, ValueError):
+        inside = False
+    if not inside:
+        raise PermissionError(
+            f"{filepath!r} resolves to {str(resolved)!r}, outside the workspace this session is "
+            f"confined to ({str(root)!r}). The workspace is marked strict: file tools may only "
+            f"read or write inside it. Ask the user to widen the workspace or turn strict mode off.")
+    return resolved
 
 
 
