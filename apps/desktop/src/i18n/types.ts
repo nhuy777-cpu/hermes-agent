@@ -2278,6 +2278,9 @@ export interface Translations {
       noColor: string
       menuAddFolder: string
       menuSetActive: string
+      menuStrictOn: string
+      menuStrictOff: string
+      strictBadge: string
       menuDelete: string
       moveToProject: string
       movedTo: (name: string) => string
@@ -3120,6 +3123,10 @@ export interface Translations {
     folderTip: (cwd: string) => string
     openFolder: string
     refreshTree: string
+    sessionResults: string
+    sessionResultsEmpty: string
+    sessionResultsTruncated: string
+    refreshSessionResults: string
     collapseAll: string
     previewUnavailable: string
     couldNotPreview: (path: string) => string

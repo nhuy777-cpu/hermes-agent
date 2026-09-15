@@ -17,6 +17,7 @@ import { $currentCwd, $selectedStoredSessionId, $workspaceCwdOwner } from '@/sto
 
 import { SidebarPanelLabel } from '../shell/sidebar-label'
 
+import { SessionResults } from './files/session-results'
 import { ProjectTree } from './files/tree'
 import { useProjectTree } from './files/use-project-tree'
 
@@ -178,6 +179,7 @@ function FilesystemTab({
           </Button>
         </Tip>
       </RightSidebarSectionHeader>
+      <SessionResults cwd={cwd} onActivateFile={onActivateFile} />
       <FileTreeBody
         collapseNonce={collapseNonce}
         cwd={cwd}

@@ -202,6 +202,13 @@ export function projectIdForCwd(cwd: string): null | string {
 // cwd-leaf label — matching the backend `_project_info_for_cwd`, which
 // only resolves projects.db rows, so the desktop and TUI name the same session
 // identically without threading a second per-session copy through session.info.
+// True when the named project owning `cwd` is marked strict (file tools
+// confined to its folders). Same longest-path match as projectIdForCwd.
+export function projectForCwdIsStrict(cwd: string): boolean {
+  const id = projectIdForCwd(cwd)
+  return id !== null && Boolean($projectTree.get().find(node => node.id === id)?.strict)
+}
+
 export function projectNameForCwd(cwd: string): null | string {
   const target = (cwd || '').trim()
 
@@ -961,7 +968,7 @@ export async function renameProject(id: string, name: string): Promise<void> {
 // lag; only a failed write reconciles from the server.
 export async function updateProject(
   id: string,
-  patch: { name?: string; color?: null | string; icon?: null | string }
+  patch: { name?: string; color?: null | string; icon?: null | string; strict?: boolean }
 ): Promise<void> {
   const snap = snapshotProjects()
 
@@ -972,7 +979,8 @@ export async function updateProject(
             ...node,
             ...(patch.name !== undefined && { label: patch.name }),
             ...(patch.color !== undefined && { color: patch.color }),
-            ...(patch.icon !== undefined && { icon: patch.icon })
+            ...(patch.icon !== undefined && { icon: patch.icon }),
+            ...(patch.strict !== undefined && { strict: patch.strict })
           }
         : node
     )
