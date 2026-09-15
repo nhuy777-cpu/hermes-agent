@@ -902,3 +902,20 @@ def test_update_strict_persists_and_surfaces_in_project_info(tmp_path):
     assert server._project_info_for_cwd(str(folder))["strict"] is True
     # A None/absent strict leaves the flag untouched, matching the other optional fields.
     assert _call("projects.update", {"id": pid, "name": "Still confined"})["project"]["strict"] is True
+
+
+def test_strict_root_resolves_to_innermost_owning_folder(tmp_path):
+    outer = tmp_path / "outer"
+    inner = outer / "inner"
+    inner.mkdir(parents=True)
+    pid = _call("projects.create", {"name": "Outer", "folders": [str(outer)]})["project"]["id"]
+    _call("projects.add_folder", {"id": pid, "path": str(inner)})
+    # Not strict: no root, whatever the cwd.
+    assert server._strict_root_for_cwd(str(inner)) is None
+    _call("projects.update", {"id": pid, "strict": True})
+    # Strict: the longest owning folder wins, and a cwd deeper inside it maps to it.
+    assert server._strict_root_for_cwd(str(inner)) == str(inner)
+    assert server._strict_root_for_cwd(str(inner / "deeper")) == str(inner)
+    assert server._strict_root_for_cwd(str(outer)) == str(outer)
+    # A cwd no project owns is unconfined.
+    assert server._strict_root_for_cwd(str(tmp_path)) is None
