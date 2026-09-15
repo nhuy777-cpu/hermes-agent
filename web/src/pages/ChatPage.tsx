@@ -32,6 +32,7 @@ import { useSearchParams } from "react-router";
 
 import { ChatSidebar } from "@/components/ChatSidebar";
 import { ChatSessionList } from "@/components/ChatSessionList";
+import { WorkspaceBar } from "@/components/WorkspaceBar";
 import { usePageHeader } from "@/contexts/usePageHeader";
 import { useI18n } from "@/i18n";
 import { api } from "@/lib/api";
@@ -368,9 +369,31 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   // management profile. Changing it remounts the terminal (key below /
   // effect dep) so the user explicitly starts a fresh scoped session.
   const { profile: scopedProfile } = useProfileScope();
+  // Cowork workspace: the folder this chat's terminal and file tools are rooted
+  // at. Persisted per browser because it is a workstation choice, not part of a
+  // session — reopening the dashboard should land in the same folder.
+  const [workspaceId, setWorkspaceId] = useState<string>(() => {
+    try {
+      return window.localStorage.getItem("hermes.chat.workspace") ?? "";
+    } catch {
+      return ""; // private mode / blocked storage: fall back to no workspace
+    }
+  });
+  const handleWorkspaceChange = useCallback((next: string) => {
+    setWorkspaceId(next);
+    try {
+      if (next) window.localStorage.setItem("hermes.chat.workspace", next);
+      else window.localStorage.removeItem("hermes.chat.workspace");
+    } catch {
+      // Non-fatal: the choice still applies to this tab for this session.
+    }
+  }, []);
+  // The workspace is folded into the channel key because TERMINAL_CWD is read
+  // once at PTY spawn: without a new channel the socket would re-attach to the
+  // PTY still rooted at the old folder.
   const channel = useMemo(
-    () => generateChannelId(`${resumeParam ?? ""}\0${scopedProfile}`),
-    [resumeParam, scopedProfile],
+    () => generateChannelId(`${resumeParam ?? ""}\0${scopedProfile}\0${workspaceId}`),
+    [resumeParam, scopedProfile, workspaceId],
   );
   const titleScope = `${channel}\0${reconnectNonce}`;
   const sessionTitle =
@@ -1182,6 +1205,8 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
       // selected profile, so the conversation runs with that profile's model,
       // skills, memory, and sessions (see web_server._resolve_chat_argv).
       if (scopedProfile) params.profile = scopedProfile;
+      // Server-side this becomes TERMINAL_CWD for the spawned agent.
+      if (workspaceId) params.workspace = workspaceId;
 
       ticketTimer = setTimeout(() => {
         ticketTimer = null;
@@ -1563,6 +1588,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
     clearReconnectTimer,
     resumeParam,
     scopedProfile,
+    workspaceId,
     reconnectNonce,
   ]);
 
@@ -1826,6 +1852,7 @@ export default function ChatPage({ isActive = true }: { isActive?: boolean }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <PluginSlot name="chat:top" />
+      <WorkspaceBar value={workspaceId} onChange={handleWorkspaceChange} />
       {mobileModelToolsPortal}
 
       {visibleBanner && (

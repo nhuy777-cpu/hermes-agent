@@ -476,17 +476,44 @@ async def pty_ws(ws: WebSocket) -> None:
     except HTTPException as exc:  # unknown/invalid profile
         await _pty_fail(ws, f"Chat unavailable: {exc.detail}")
         return
+
     except SystemExit as exc:  # _make_tui_argv sys.exit(1)s when node/npm is missing
         await _pty_fail(ws, f"Chat unavailable: {exc}")
         return
+
+    # Cowork workspace: point the agent's terminal and file tools at the folder the
+    # user picked. TERMINAL_CWD is the same lever `terminal.cwd` pulls, and
+    # `_authoritative_workspace_root` reads it, so both tool families agree on the
+    # root without touching config.yaml. A workspace whose folder disappeared is
+    # reported rather than silently ignored — otherwise the agent would quietly
+    # work in the default directory and write files where nobody looks for them.
+    workspace_id = (ws.query_params.get("workspace") or "").strip()
+    if workspace_id and env is not None:
+        from hermes_cli.web_routers.workspaces import find_workspace
+
+        entry = find_workspace(workspace_id)
+        if entry is None:
+            await _pty_fail(ws, f"Chat unavailable: no such workspace {workspace_id!r}")
+            return
+        workspace_path = str(entry.get("path") or "")
+        if not workspace_path or not Path(workspace_path).is_dir():
+            await _pty_fail(
+                ws, f"Chat unavailable: workspace folder is gone ({workspace_path})")
+            return
+        env["TERMINAL_CWD"] = workspace_path
 
     attach_token = ws.query_params.get("attach") or None
     registry_resume = raw_resume
     if raw_resume and env:
         registry_resume = env.get("HERMES_TUI_RESUME") or raw_resume
-    if attach_token is not None and (registry_resume or profile):
+    if attach_token is not None and (registry_resume or profile or workspace_id):
         # Key explicit resumes on their canonical target, never the active-session fallback.
-        attach_token = f"{attach_token}\0{profile or ''}\0{registry_resume or ''}"
+        # The workspace belongs in this key too: TERMINAL_CWD is baked in when the PTY
+        # spawns, so a token that ignored it would re-attach the caller to a live PTY
+        # still rooted at the previous folder — the picker would appear to work while
+        # the agent kept writing somewhere else.
+        attach_token = (
+            f"{attach_token}\0{profile or ''}\0{registry_resume or ''}\0{workspace_id}")
 
     def _spawn():
         return PtyBridge.spawn(argv, cwd=cwd, env=env)
