@@ -15,7 +15,7 @@ import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
 import { $routeTiles, $skillsTileTab, closeRouteTile, type RouteTile } from '@/store/route-tiles'
 
-import { ARTIFACTS_ROUTE, contributedRoutes, MESSAGING_ROUTE, ROUTES_AREA, SKILLS_ROUTE } from '../routes'
+import { $routesVersion, ARTIFACTS_ROUTE, contributedRoutes, MESSAGING_ROUTE, ROUTES_AREA, SKILLS_ROUTE } from '../routes'
 
 import { paneMirror } from './pane-mirror'
 
@@ -51,18 +51,20 @@ function routeTitle(path: string): string {
   return contributedRoutes().find(r => r.path === path)?.title ?? humanizePath(path)
 }
 
-function RouteTilePane({ path }: { path: string }) {
+export function RouteTilePane({ path }: { path: string }) {
   const builtin = BUILTIN_PAGES[path]
 
   // Subscribe so a plugin page tile appears the moment its route registers.
-  useContributions(ROUTES_AREA)
+  // The snapshot feeds the lookup: under React Compiler an independently
+  // called contributedRoutes() can stay memoized across that registration.
+  const contributions = useContributions(ROUTES_AREA)
+  const contrib = builtin ? null : contributedRoutes(contributions).find(r => r.path === path)
   // Read (not discard) the tab so the React Compiler's auto-memoization sees
   // it as a real input to the JSX below and recomputes on change — a bare
   // `useStore($skillsTileTab)` call with the result unused still re-renders
-  // this component, but the compiler had no way to know `skillsRender`'s
-  // output depended on it, so it kept serving the FIRST tab forever.
+  // this component, but the compiler had no way to know `render`'s output
+  // depended on it, so it kept serving the FIRST tab forever.
   const skillsTab = useStore($skillsTileTab)
-  const contrib = builtin ? null : contributedRoutes().find(r => r.path === path)
 
   if (builtin) {
     // embedded: this tile shares the app's one HashRouter location with the
@@ -105,6 +107,9 @@ function RouteTilePane({ path }: { path: string }) {
 /** Keep pane contributions mirroring `$routeTiles`. Call once from the root. */
 export const watchRouteTiles = paneMirror<RouteTile>({
   source: $routeTiles,
+  // A tile restored before its plugin route registers must pick up the
+  // contribution's title once it lands, not keep the humanized-path fallback.
+  also: [$routesVersion],
   key: t => t.path,
   prefix: 'route-tile',
   dir: t => t.dir,

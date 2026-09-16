@@ -1,3 +1,4 @@
+import { compactNumber } from '@hermes/shared'
 import { useStore } from '@nanostores/react'
 import { useQuery } from '@tanstack/react-query'
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -26,7 +27,7 @@ import {
   testMcpServer
 } from '@/hermes'
 import { type Translations, useI18n } from '@/i18n'
-import { compactNumber } from '@/lib/format'
+import { startCompletionPoll } from '@/lib/completion-poll'
 import { brandFor } from '@/lib/mcp-brands'
 import { estimateServerTokens, serverUsageCount } from '@/lib/mcp-cost'
 import { completeMcpDesktopOAuth } from '@/lib/mcp-dashboard-oauth'
@@ -41,7 +42,8 @@ import { $activeSessionId } from '@/store/session'
 
 import { hermesConfigCacheWriter, useHermesConfigRecord } from '../hooks/use-config-record'
 import { useOnProfileSwitch } from '../hooks/use-on-profile-switch'
-import { ICON_BUTTON } from '../master-detail'
+import { useProfileSwitchLatch } from '../hooks/use-profile-switch-latch'
+import { DetailPane, ICON_BUTTON, MASTER_DETAIL_WIDE_COLS } from '../master-detail'
 import { PanelAddButton, PanelEmpty } from '../overlays/panel'
 import { prettyName } from '../settings/helpers'
 import { useDeepLinkHighlight } from '../settings/use-deep-link-highlight'
@@ -220,9 +222,10 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
   // True from a profile switch until the config query resettles for the new
   // profile. Until then `config` (and thus `servers`) still holds profile A's
   // data, so any persist would write A's server list into B — block mutations.
-  const [profilePending, setProfilePending] = useState(false)
-  const staleConfigStamp = useRef<null | number>(null)
-  const staleErrorStamp = useRef<null | number>(null)
+  const { arm: armProfileLatch, pending: profilePending } = useProfileSwitchLatch({
+    dataUpdatedAt: configUpdatedAt,
+    errorUpdatedAt: configErroredAt
+  })
 
   const [saving, setSaving] = useState(false)
   const [probes, setProbes] = useState<Record<string, Probe>>({})
@@ -313,27 +316,10 @@ export function McpTab({ gateway, profile }: { gateway: HermesGateway | null; pr
     setAuthing(null)
     // Mark stale until the config query replaces profile A's data — guards
     // sidebar mutations from persisting A's server list into B mid-refetch.
-    staleConfigStamp.current = configUpdatedAt
-    staleErrorStamp.current = configErroredAt
-    setProfilePending(true)
+    // The latch releases on a fresh success OR a fresh failure, so a failed
+    // refetch surfaces the retry UI instead of leaving mutations no-op forever.
+    armProfileLatch()
   })
-
-  // Clear once the config query settles for the new profile: dataUpdatedAt bumps
-  // on a fresh success, errorUpdatedAt on a fresh failure. Releasing on error too
-  // means a failed refetch surfaces the retry UI instead of leaving mutations
-  // silently no-op forever.
-  // eslint-disable-next-line no-restricted-syntax -- legitimate non-atom ref write (see eslint rule comment)
-  useEffect(() => {
-    if (
-      profilePending &&
-      staleConfigStamp.current !== null &&
-      (configUpdatedAt !== staleConfigStamp.current || configErroredAt !== staleErrorStamp.current)
-    ) {
-      setProfilePending(false)
-      staleConfigStamp.current = null
-      staleErrorStamp.current = null
-    }
-  }, [profilePending, configUpdatedAt, configErroredAt])
 
   useDeepLinkHighlight({
     block: 'nearest',

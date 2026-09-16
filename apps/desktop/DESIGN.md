@@ -118,9 +118,10 @@ do **not** pass `h-*`, `px-*`, `py-*`, or icon-size overrides.
 
 **Variants:** `default` (primary), `destructive`, `secondary` (soft fill —
 the default non-primary look), `outline` (transparent + 1px inset ring, no
-fill/shadow), `ghost`, `link`, `text` (boxless quiet inline — "Cancel",
-"Clear"), `textStrong` (bold underlined inline affordance — "Change",
-"Open logs").
+fill/shadow), `ghost`, `floating` (a control loose from any surface — opaque
+popover fill + `shadow-md`, hover lifts the glyph only), `link`, `text`
+(boxless quiet inline — "Cancel", "Clear"), `textStrong` (bold underlined
+inline affordance — "Change", "Open logs").
 
 **Sizes:** `default`, `xs`, `sm`, `lg`, `inline` (flush, zero box — for buttons
 that sit inside a heading/sentence; replaces `h-auto px-0 py-0`), `micro`
@@ -177,6 +178,14 @@ Notes:
 `warn`, `destructive`, `outline`, `solid` (primary fill — icon-corner counts).
 Sizes: `default`, `xs`, `overlay` (titlebar glyph counts).
 
+## Context-sensitive dialogs
+
+Sudo password dialogs keep the backdrop unblurred (`DialogContent`'s
+`blurBackdrop={false}`) and show the complete, selectable command before the
+password field. Long commands wrap and scroll; missing backend context is
+explicit, never inferred from another tool row. Other dialogs retain the shared
+blurred backdrop.
+
 ## Form controls
 
 - **`controlVariants`** (`src/components/ui/control.ts`) is the shared shape for
@@ -188,6 +197,11 @@ Sizes: `default`, `xs`, `overlay` (titlebar glyph counts).
   (color mode, tool-call display, usage period). Replaces radio piles and
   pill rows.
 - **`Switch`** (`size="xs"`) — bare, with `aria-label`. No bordered text wrapper.
+- **`FanMenu`** (`src/components/ui/fan-menu.tsx`) — one hub control that
+  fans sibling toggles out on hover: `direction` `vertical` | `horizontal`
+  (split around the hub) | `arc`. Discs are `Button` `floating` off /
+  `default` on; tips anchor left by default. Use it where a row of rarely
+  touched toggles is costing input width (the composer's voice controls).
 
 ## Layout
 
@@ -271,10 +285,27 @@ so glass and message-bubble transparency do not reveal scrolling text.
   from the chip to the floating pill; leaving both dismisses it.
 - A tool result may expose an inline action that opens a preview. It must not
   open the rail automatically.
+- Tool rows reserve destructive red for explicit failures. Missing read paths and
+  ambiguous exit-1 results use neutral notices, with details still available.
+  Errors described inside returned data are not tool failures. Expanded failures
+  show the actual explanation; supporting output keeps its normal text color.
 - Composer status groups start collapsed except todos. Progress updates and queue
   pause/resume preserve the user's disclosure choice. Error banners meet the
   stack's top edge without a blank padding strip. File and preview links remain
   visible at the bottom of the stack, below the queue and all status groups.
+- Status-stack rows use `StatusRow` with a leading `dismiss` action, a state
+  icon and optional trailing actions. `StatusDismissButton` owns the Codicon
+  close button for previews, background tasks and queued prompts; do not swap
+  it for a trash icon or a CSS glyph. Icons and controls align to the first text
+  line, including messages with attachment metadata.
+- `status-stack.css` owns the shared columns and `0.25rem` nesting step. Rows
+  own their padding and full-width hover fill. `StatusControlRow` uses the same
+  columns for goal/loop/heartbeat details; `StatusPendingIcon` supplies the
+  dashed marker for tasks and criteria. The first row has `0.5rem` top inset.
+- Keep the rounded status card stationary, with the bounded scroll viewport
+  inside it. The outer scroll boundary uses `overscroll-behavior-y: contain`;
+  nested rosters and transcripts use `auto` so wheel input can hand off at an
+  edge without trapping it or scrolling the chat behind the stack.
 - Install, onboarding, connecting, boot failure, and reauthentication are
   distinct states with shared visual primitives. Preserve their recovery
   semantics when unifying appearance.
