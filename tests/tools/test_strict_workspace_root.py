@@ -80,3 +80,16 @@ def test_unrestricted_task_is_unchanged(tmp_path):
         assert str(_resolve_path_for_task(str(target), task_id)) == str(target)
     finally:
         tt.clear_task_env_overrides(task_id)
+
+
+def test_hermes_home_stays_reachable_under_strict(strict_task, tmp_path, monkeypatch):
+    task_id, _, _ = strict_task
+    home = tmp_path / "hermes-home"
+    (home / "skill-recordings").mkdir(parents=True)
+    import hermes_constants
+    monkeypatch.setattr(hermes_constants, "get_hermes_home", lambda: home)
+    recording = home / "skill-recordings" / "events.jsonl"
+    assert str(_resolve_path_for_task(str(recording), task_id)) == str(recording)
+    # Still confined everywhere else.
+    with pytest.raises(PermissionError):
+        _resolve_path_for_task(str(tmp_path / "elsewhere.txt"), task_id)

@@ -28,6 +28,8 @@ interface RecordStatus {
   shots?: number
   truncated?: boolean
   duration?: number
+  /** Backend-composed turn to drop into the composer after a stop. */
+  prompt?: string
 }
 
 // The attach-menu row runs outside React, so it reaches the gateway the same
@@ -162,7 +164,11 @@ function StopDialog({ recording }: { recording: SkillRecording }) {
       const result = await gatewayCall<RecordStatus>('skill_record.stop', { name })
       $skillRecording.set(null)
       $skillRecordStopOpen.set(false)
-      requestComposerInsert(skillPrompt(name, result.directory ?? recording.directory), { target: 'main' })
+      // The backend owns the prompt (tunable without a renderer rebuild); the
+      // local template only covers a backend that predates it.
+      requestComposerInsert(result.prompt ?? skillPrompt(name, result.directory ?? recording.directory), {
+        target: 'main'
+      })
       notify({
         kind: 'success',
         message: c.saved(result.clicks ?? recording.clicks, result.shots ?? recording.shots)

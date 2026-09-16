@@ -82,3 +82,12 @@ def test_press_between_polls_counts_as_a_click(isolated_root, monkeypatch):
     time.sleep(0.5)
     result = sr.stop()
     assert result["clicks"] == 1
+
+
+def test_stop_returns_a_tight_vietnamese_prompt(isolated_root):
+    sr.start(name="demo")
+    time.sleep(0.3)
+    result = sr.stop(name="demo")
+    prompt = result["prompt"]
+    assert result["directory"] in prompt and '"demo"' in prompt
+    assert "MỖI ẢNH ĐÚNG 1 LẦN" in prompt and "KHÔNG crop" in prompt and "skill_manage" in prompt

@@ -209,10 +209,38 @@ def stop(name: str = "", discard: bool = False) -> dict[str, Any]:
         shutil.rmtree(rec.directory, ignore_errors=True)
         return {"recording": False, "discarded": True}
     _write_readme(rec, name)
+    clicks = sum(1 for e in rec.events if e.get("type") == "click")
     return {"recording": False, "id": rec.id, "directory": str(rec.directory), "name": name,
             "duration": round(time.time() - rec.started_at, 1),
-            "clicks": sum(1 for e in rec.events if e.get("type") == "click"),
-            "shots": rec.shots, "truncated": rec.truncated}
+            "clicks": clicks, "shots": rec.shots, "truncated": rec.truncated,
+            "prompt": skill_prompt(name, rec.directory, clicks)}
+
+
+def skill_prompt(name: str, directory: Path, clicks: int) -> str:
+    """The turn the desktop drops into the composer after Stop. Lives here, not in
+    the renderer, so tuning it never needs a 10-minute Electron rebuild.
+
+    Vietnamese on purpose (the user's profile answers in Vietnamese). Tight on
+    purpose: the first live run spent 77 API calls / 8M tokens because the agent
+    was told "look at the screenshots" and cropped every frame repeatedly through
+    vision_analyze (~50k chars per call). Now: README + events first, only the
+    click frames, each at most once, no region crops, then write the skill."""
+    title = (name or "").strip() or "skill-moi"
+    d = str(directory)
+    sep = os.sep
+    return "\n".join([
+        f"Tạo skill từ bản ghi thao tác của tôi tại thư mục: {d}",
+        f"1. Đọc {d}{sep}README.md và {d}{sep}events.jsonl bằng read_file — đã có sẵn thời điểm, toạ độ click, "
+        "tên cửa sổ, app và tên ảnh cho từng bước. Dùng dữ liệu này làm khung các bước.",
+        f"2. Chỉ xem các ảnh *-click.jpg ({clicks} ảnh) bằng vision_analyze, MỖI ẢNH ĐÚNG 1 LẦN, "
+        "toàn ảnh, KHÔNG crop vùng. Bỏ qua ảnh idle/window/start trừ khi 1 click chưa rõ. "
+        "Tối đa 12 lượt gọi tool cho toàn bộ bước này.",
+        f"3. Ngay sau đó dùng skill_manage tạo skill tên \"{title}\" gồm: mục đích, điều kiện bắt đầu, "
+        "các bước (app, cửa sổ, thao tác, kết quả mong đợi), cách kiểm tra đã xong. "
+        "Viết để sau này tự thực hiện lại bằng computer_use/browser, hoặc hướng dẫn tôi từng bước.",
+        "4. Phím gõ KHÔNG được ghi lại — không suy đoán nội dung đã gõ; ghi chú \"(người dùng nhập …)\" "
+        "ở bước đó và hỏi lại tôi nếu chưa rõ. Không lặp lại việc phân tích ảnh sau khi đã tạo skill.",
+    ])
 
 
 def _write_readme(rec: _Recording, name: str) -> None:

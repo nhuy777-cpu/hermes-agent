@@ -169,6 +169,12 @@ def _resolve_base_dir(
     return _anchor(_host_text(root or os.getcwd(), container_paths), os.getcwd, container_paths)
 
 
+def _hermes_home_resolved() -> Path:
+    from hermes_constants import get_hermes_home
+
+    return Path(get_hermes_home()).resolve()
+
+
 def _strict_workspace_root(task_id: str = "default") -> str | None:
     """Folder the task's file tools are confined to, or ``None`` when unrestricted.
 
@@ -205,7 +211,12 @@ def _resolve_path_for_task(filepath: str, task_id: str = "default") -> Path | Pu
         return resolved
     root = Path(strict_root).resolve()
     try:
-        inside = Path(resolved).resolve().is_relative_to(root)
+        target = Path(resolved).resolve()
+        # The confinement protects the user's OTHER folders, not Hermes' own home:
+        # skills, memories and skill recordings live there and the agent must keep
+        # reading/writing them from a confined session (first live test: a strict
+        # project blocked read_file on the recording it was asked to turn into a skill).
+        inside = target.is_relative_to(root) or target.is_relative_to(_hermes_home_resolved())
     except (OSError, ValueError):
         inside = False
     if not inside:
