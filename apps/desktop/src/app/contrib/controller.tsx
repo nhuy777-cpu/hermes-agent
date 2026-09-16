@@ -78,6 +78,7 @@ import { $statusbarVisible } from '@/store/statusbar-prefs'
 import { isBrowserWindow, isHudWindow } from '@/store/windows'
 
 import { BrowserPopoutShell } from '../chat/browser-popout-shell'
+import { registerCoworkComposer } from '../chat/composer/cowork/register'
 import type { SessionDragPayload } from '../chat/composer/inline-refs'
 import { watchPreviewTiles } from '../chat/preview-tile'
 import { watchRouteTiles } from '../chat/route-tile'
@@ -403,6 +404,7 @@ registry.registerMany([
 ])
 
 registerLayoutPresets()
+registerCoworkComposer()
 
 declareDefaultTree(DEFAULT_TREE)
 

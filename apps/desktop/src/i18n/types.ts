@@ -2499,6 +2499,29 @@ export interface Translations {
     themeTryPre: string
     themeTryPost: string
     attachLabel: string
+    cowork: {
+      modeLabel: string
+      chat: string
+      chatTip: string
+      cowork: string
+      coworkTip: string
+      projectOrFolder: string
+      projectsLabel: string
+      noProjects: string
+      browseFolder: string
+      browseFailed: string
+      recording: string
+      clicks: (n: number) => string
+      truncated: string
+      stopAndCreate: string
+      discard: string
+      stopTitle: string
+      stopDescription: string
+      namePlaceholder: string
+      createSkill: string
+      saved: (clicks: number, shots: number) => string
+      stopFailed: string
+    }
     files: string
     folder: string
     images: string
