@@ -9,9 +9,11 @@
 
 import { lazy, type ReactNode, Suspense } from 'react'
 
+import { useStore } from '@nanostores/react'
+
 import { ContribBoundary, ContribRender } from '@/contrib/react/boundary'
 import { useContributions } from '@/contrib/react/use-contributions'
-import { $routeTiles, closeRouteTile, type RouteTile } from '@/store/route-tiles'
+import { $routeTiles, $skillsTileTab, closeRouteTile, type RouteTile } from '@/store/route-tiles'
 
 import { ARTIFACTS_ROUTE, contributedRoutes, MESSAGING_ROUTE, ROUTES_AREA, SKILLS_ROUTE } from '../routes'
 
@@ -25,7 +27,11 @@ const ArtifactsView = lazy(async () => ({ default: (await import('../artifacts')
 const BUILTIN_PAGES: Record<string, { render: () => ReactNode; title: string }> = {
   [ARTIFACTS_ROUTE]: { render: () => <ArtifactsView />, title: 'Artifacts' },
   [MESSAGING_ROUTE]: { render: () => <MessagingView />, title: 'Messaging' },
-  [SKILLS_ROUTE]: { render: () => <SkillsView />, title: 'Capabilities' }
+  // embedded: this tile shares the app's one HashRouter location with the main
+  // pane — a non-embedded SkillsView reading `?tab=` off that location would
+  // navigate the main pane too. $skillsTileTab carries the requested tab
+  // (composer "+" menu) outside the URL instead; see store/route-tiles.ts.
+  [SKILLS_ROUTE]: { render: () => <SkillsView embedded initialMode={$skillsTileTab.get()} />, title: 'Capabilities' }
 }
 
 /** Humanize a route path into a tab title: `/my-atlas` → `My Atlas`. */
@@ -52,6 +58,9 @@ function RouteTilePane({ path }: { path: string }) {
 
   // Subscribe so a plugin page tile appears the moment its route registers.
   useContributions(ROUTES_AREA)
+  // Re-render on tab changes so an already-open Capabilities tile picks up a
+  // new $skillsTileTab value (builtin.render reads it fresh each call).
+  useStore($skillsTileTab)
   const contrib = builtin ? null : contributedRoutes().find(r => r.path === path)
 
   if (builtin) {

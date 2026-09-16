@@ -214,6 +214,10 @@ interface SkillsViewProps extends React.ComponentProps<'section'> {
    *  state lives in local React state instead of the route's `?tab=` param,
    *  so an embedding dialog never fights the page router. */
   embedded?: boolean
+  /** Initial tab when `embedded` — e.g. a route tile opened via the composer's
+   *  "+" menu (Connectors/Plugins) wants to land straight on that tab without
+   *  touching the shared router location. Ignored outside embedded mode. */
+  initialMode?: (typeof SKILLS_MODES)[number]
   /** Pin the WHOLE view to one profile: the scope selector is hidden and
    *  every tab reads/writes THAT profile. This is the plugin door — Bot Mode
    *  renders the real Capabilities surface pinned to a bot. */
@@ -228,6 +232,7 @@ interface SkillsViewProps extends React.ComponentProps<'section'> {
 
 export function SkillsView({
   embedded = false,
+  initialMode,
   fixedConnection,
   fixedProfile,
   setStatusbarItemGroup: _setStatusbarItemGroup,
@@ -237,8 +242,17 @@ export function SkillsView({
   // Both hooks run unconditionally (rules of hooks); embedded picks the local
   // one so tab clicks inside a dialog don't rewrite the page URL.
   const routeTab = useRouteEnumParam('tab', SKILLS_MODES, 'skills')
-  const localTab = useState<(typeof SKILLS_MODES)[number]>('skills')
+  const localTab = useState<(typeof SKILLS_MODES)[number]>(initialMode ?? 'skills')
   const [mode, setMode] = embedded ? localTab : routeTab
+  // A caller can change `initialMode` after this view is already mounted (a
+  // route tile stays mounted across composer "+" clicks) — useState's initial
+  // value only applies once, so re-apply it here when it actually changes.
+  useEffect(() => {
+    if (embedded && initialMode) {
+      setMode(initialMode)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the caller handing us a NEW tab, not our own setter identity
+  }, [initialMode])
   // $gateway only feeds the MCP tab — gate the subscription so Skills/Toolsets
   // tabs don't re-render on connect/disconnect/reconnect.
   const gateway = useStoreSelector($gateway, g => (mode === 'mcp' ? g : null))
