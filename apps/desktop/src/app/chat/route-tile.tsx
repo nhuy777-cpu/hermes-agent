@@ -23,23 +23,13 @@ const SkillsView = lazy(async () => ({ default: (await import('../skills')).Skil
 const MessagingView = lazy(async () => ({ default: (await import('../messaging')).MessagingView }))
 const ArtifactsView = lazy(async () => ({ default: (await import('../artifacts')).ArtifactsView }))
 
-// Built-in page views + their pane titles, keyed by route.
+// Built-in page views + their pane titles, keyed by route. SKILLS_ROUTE's
+// `render` here is never called — RouteTilePane special-cases it below — but
+// stays in this map for `routeTitle`.
 const BUILTIN_PAGES: Record<string, { render: () => ReactNode; title: string }> = {
   [ARTIFACTS_ROUTE]: { render: () => <ArtifactsView />, title: 'Artifacts' },
   [MESSAGING_ROUTE]: { render: () => <MessagingView />, title: 'Messaging' },
-  // embedded: this tile shares the app's one HashRouter location with the main
-  // pane — a non-embedded SkillsView reading `?tab=` off that location would
-  // navigate the main pane too. $skillsTileTab carries the requested tab
-  // (composer "+" menu) outside the URL instead; see store/route-tiles.ts.
-  // `key`d on the tab: `initialMode` only seeds SkillsView's own useState, so
-  // a SECOND "+" click while the tile is already open (e.g. Skills, then
-  // Connectors, without closing it) needs a fresh instance to pick up the new
-  // tab — remounting is simpler and more robust than plumbing a live update
-  // through an already-mounted, otherwise-self-contained embedded view.
-  [SKILLS_ROUTE]: {
-    render: () => <SkillsView embedded initialMode={$skillsTileTab.get()} key={$skillsTileTab.get()} />,
-    title: 'Capabilities'
-  }
+  [SKILLS_ROUTE]: { render: () => <SkillsView embedded />, title: 'Capabilities' }
 }
 
 /** Humanize a route path into a tab title: `/my-atlas` → `My Atlas`. */
@@ -66,16 +56,28 @@ function RouteTilePane({ path }: { path: string }) {
 
   // Subscribe so a plugin page tile appears the moment its route registers.
   useContributions(ROUTES_AREA)
-  // Re-render on tab changes so an already-open Capabilities tile picks up a
-  // new $skillsTileTab value (builtin.render reads it fresh each call).
-  useStore($skillsTileTab)
+  // Read (not discard) the tab so the React Compiler's auto-memoization sees
+  // it as a real input to the JSX below and recomputes on change — a bare
+  // `useStore($skillsTileTab)` call with the result unused still re-renders
+  // this component, but the compiler had no way to know `skillsRender`'s
+  // output depended on it, so it kept serving the FIRST tab forever.
+  const skillsTab = useStore($skillsTileTab)
   const contrib = builtin ? null : contributedRoutes().find(r => r.path === path)
 
   if (builtin) {
+    // embedded: this tile shares the app's one HashRouter location with the
+    // main pane — a non-embedded SkillsView reading `?tab=` off that location
+    // would navigate the main pane too. `key`d on the tab: `initialMode` only
+    // seeds SkillsView's own useState, so a second "+" click while the tile
+    // is already open (Skills, then Connectors, without closing it) needs a
+    // fresh instance to pick up the new tab.
+    const render =
+      path === SKILLS_ROUTE ? () => <SkillsView embedded initialMode={skillsTab} key={skillsTab} /> : builtin.render
+
     return (
       <ContribBoundary id={path}>
         <Suspense fallback={null}>
-          <ContribRender render={builtin.render} />
+          <ContribRender render={render} />
         </Suspense>
       </ContribBoundary>
     )
