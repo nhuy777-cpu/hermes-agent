@@ -244,15 +244,6 @@ export function SkillsView({
   const routeTab = useRouteEnumParam('tab', SKILLS_MODES, 'skills')
   const localTab = useState<(typeof SKILLS_MODES)[number]>(initialMode ?? 'skills')
   const [mode, setMode] = embedded ? localTab : routeTab
-  // A caller can change `initialMode` after this view is already mounted (a
-  // route tile stays mounted across composer "+" clicks) — useState's initial
-  // value only applies once, so re-apply it here when it actually changes.
-  useEffect(() => {
-    if (embedded && initialMode) {
-      setMode(initialMode)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to the caller handing us a NEW tab, not our own setter identity
-  }, [initialMode])
   // $gateway only feeds the MCP tab — gate the subscription so Skills/Toolsets
   // tabs don't re-render on connect/disconnect/reconnect.
   const gateway = useStoreSelector($gateway, g => (mode === 'mcp' ? g : null))

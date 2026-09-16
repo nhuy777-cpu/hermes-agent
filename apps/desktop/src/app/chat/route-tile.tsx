@@ -31,7 +31,15 @@ const BUILTIN_PAGES: Record<string, { render: () => ReactNode; title: string }> 
   // pane — a non-embedded SkillsView reading `?tab=` off that location would
   // navigate the main pane too. $skillsTileTab carries the requested tab
   // (composer "+" menu) outside the URL instead; see store/route-tiles.ts.
-  [SKILLS_ROUTE]: { render: () => <SkillsView embedded initialMode={$skillsTileTab.get()} />, title: 'Capabilities' }
+  // `key`d on the tab: `initialMode` only seeds SkillsView's own useState, so
+  // a SECOND "+" click while the tile is already open (e.g. Skills, then
+  // Connectors, without closing it) needs a fresh instance to pick up the new
+  // tab — remounting is simpler and more robust than plumbing a live update
+  // through an already-mounted, otherwise-self-contained embedded view.
+  [SKILLS_ROUTE]: {
+    render: () => <SkillsView embedded initialMode={$skillsTileTab.get()} key={$skillsTileTab.get()} />,
+    title: 'Capabilities'
+  }
 }
 
 /** Humanize a route path into a tab title: `/my-atlas` → `My Atlas`. */
