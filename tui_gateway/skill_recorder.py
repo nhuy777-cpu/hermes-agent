@@ -94,8 +94,14 @@ def _foreground() -> tuple[str, str]:
     return buf.value, exe
 
 
-def _button_down(vk: int) -> bool:
-    return bool(_user32().GetAsyncKeyState(vk) & 0x8000)
+def _button_state(vk: int) -> tuple[bool, bool]:
+    """(held right now, pressed at least once since the previous call).
+
+    The second flag is bit 0 of GetAsyncKeyState — without it a click whose
+    down→up lasts less than one 30 ms poll (synthetic input, a fast tap) is
+    never seen; with it a press between two polls still counts as one click."""
+    state = _user32().GetAsyncKeyState(vk)
+    return bool(state & 0x8000), bool(state & 0x0001)
 
 
 def _grab(rec: _Recording, tag: str) -> Optional[str]:
@@ -136,8 +142,8 @@ def _loop(rec: _Recording) -> None:
     last_shot = time.time()
     while not rec.stop_flag.is_set():
         for vk, button in ((_VK_LBUTTON, "left"), (_VK_RBUTTON, "right")):
-            down = _button_down(vk)
-            if down and not was_down[vk]:
+            down, pressed_since = _button_state(vk)
+            if (down or pressed_since) and not was_down[vk]:
                 x, y = _cursor()
                 title, exe = _foreground()
                 # Frame taken just after the press so the clicked control is still visible.

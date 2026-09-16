@@ -47,3 +47,38 @@ def test_double_start_refused_and_discard_removes_folder(isolated_root):
     assert sr.status() == {"recording": False}
     with pytest.raises(RuntimeError, match="No skill recording"):
         sr.stop()
+
+
+def test_press_between_polls_counts_as_a_click(isolated_root, monkeypatch):
+    # Simulate GetAsyncKeyState reporting "pressed since last call" (bit 0)
+    # exactly once with the button already released — a sub-poll tap.
+    calls = {"n": 0}
+
+    class FakeUser32:
+        def GetAsyncKeyState(self, vk):
+            if vk == sr._VK_LBUTTON:
+                calls["n"] += 1
+                return 0x0001 if calls["n"] == 3 else 0
+            return 0
+
+        def GetCursorPos(self, pt):
+            return True
+
+        def GetForegroundWindow(self):
+            return 0
+
+        def GetWindowTextW(self, hwnd, buf, n):
+            return 0
+
+        def GetWindowThreadProcessId(self, hwnd, pid):
+            return 0
+
+        def SetProcessDPIAware(self):
+            return True
+
+    monkeypatch.setattr(sr, "_user32", lambda: FakeUser32())
+    monkeypatch.setattr(sr, "_grab", lambda rec, tag: None)
+    sr.start()
+    time.sleep(0.5)
+    result = sr.stop()
+    assert result["clicks"] == 1
