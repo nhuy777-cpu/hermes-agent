@@ -52,6 +52,8 @@ export interface SidebarProjectTree {
   color?: null | string
   icon?: null | string
   archived?: boolean
+  // File tools of sessions in this project are confined to its folders.
+  strict?: boolean
   // A git repo root promoted automatically (not a user-created projects.db row).
   // Deletable = dismissable.
   isAuto?: boolean

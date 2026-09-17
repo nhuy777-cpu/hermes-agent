@@ -61,7 +61,9 @@ jobs:
             runner: macos-latest
             marker: macos_only
           - name: Windows-only tests
-            runner: windows-latest-32-core
+            # ponytail: downgraded from windows-latest-32-core on this fork —
+            # larger runners are org-billed and unavailable here.
+            runner: windows-latest
             marker: windows_only
     steps:
       - name: Checkout code

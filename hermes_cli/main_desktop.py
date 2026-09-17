@@ -192,6 +192,26 @@ def _desktop_unpacked_root(exe: Path, release_dir: Path) -> Path:
     return unpacked
 
 
+def _rename_with_retry(src: Path, dst: Path, attempts: int = 12, delay_s: float = 2.0) -> None:
+    """``os.rename`` that rides out a transient lock on a just-written tree.
+
+    On Windows an on-access scanner (Trellix/Defender) holds handles on a freshly
+    packaged Hermes.exe/app.asar for a few seconds, and a directory rename fails
+    with WinError 5 while it does. Both rebuilds on 2026-09-16 died exactly there
+    with the pack itself fine. Retry on PermissionError only; anything else raises."""
+    import time
+    for attempt in range(attempts):
+        try:
+            os.rename(src, dst)
+            return
+        except PermissionError:
+            if attempt == attempts - 1:
+                raise
+            logger.info("rename %s -> %s denied (attempt %d/%d), retrying in %.0fs",
+                        src, dst, attempt + 1, attempts, delay_s)
+            time.sleep(delay_s)
+
+
 def _swap_staged_desktop_app(desktop_dir: Path, staging_dir: Path) -> Optional[Path]:
     """Promote a VERIFIED staged pack over ``release/`` by two renames (live → ``.previous``, staged →
     live); a failure between them rolls back. Returns the live exe or None (live app kept). Never raises."""
@@ -214,10 +234,10 @@ def _swap_staged_desktop_app(desktop_dir: Path, staging_dir: Path) -> Optional[P
                 logger.info("stopped desktop processes before staged app promotion: %s", stopped)
             os.rename(live_root, previous)
         try:
-            os.rename(staged_root, live_root)
+            _rename_with_retry(staged_root, live_root)
         except OSError:
             if moved_aside:
-                os.rename(previous, live_root)  # restore; live app back as it was
+                _rename_with_retry(previous, live_root)  # restore; live app back as it was
             raise
         if moved_aside:
             shutil.rmtree(previous, ignore_errors=True)

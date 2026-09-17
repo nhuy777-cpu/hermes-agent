@@ -356,6 +356,47 @@ function appendSessionFilters(url: string, options: SessionQueryOptions): string
   return appendProfileParam(next, options.profile);
 }
 
+/** A Cowork workspace: a named folder the agent's tools are scoped to. */
+export interface Workspace {
+  id: string;
+  name: string;
+  path: string;
+  /** File tools refuse paths outside the folder (terminal is not confined). */
+  strict: boolean;
+  created_at: number;
+  /** False when the folder was moved, deleted, or is on an unplugged drive. */
+  exists: boolean;
+}
+
+export interface WorkspaceBrowseEntry {
+  name: string;
+  path: string;
+}
+
+export interface WorkspaceBrowse {
+  path: string;
+  /** null at a filesystem root; "" means "back to the drive list" on Windows. */
+  parent: string | null;
+  dirs: WorkspaceBrowseEntry[];
+}
+
+export interface WorkspaceDeliverable {
+  name: string;
+  rel_path: string;
+  size: number;
+  modified_at: number;
+}
+
+export interface WorkspaceDeliverables {
+  workspace_id?: string;
+  root: string;
+  /** Epoch seconds the listing was filtered from (0 = whole folder). */
+  since: number;
+  /** True when the folder was too large to walk fully; the list is partial. */
+  truncated: boolean;
+  files: WorkspaceDeliverable[];
+}
+
 export const api = {
   buildWsUrl,
   getStatus: () => fetchJSON<StatusResponse>("/api/status"),
@@ -416,6 +457,37 @@ export const api = {
     fetchJSON<SessionInfo>(
       appendProfileParam(`/api/sessions/${encodeURIComponent(id)}`, profile),
     ),
+
+  // Cowork workspaces: a named folder that scopes one chat's terminal and file
+  // tools. Not profile-scoped — a folder on this machine is the same folder
+  // whichever management profile is selected.
+  listWorkspaces: () => fetchJSON<{ workspaces: Workspace[] }>("/api/workspaces"),
+  createWorkspace: (body: { name: string; path: string; strict?: boolean }) =>
+    fetchJSON<Workspace>("/api/workspaces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  updateWorkspace: (
+    id: string,
+    body: { name?: string; strict?: boolean },
+  ) =>
+    fetchJSON<Workspace>(`/api/workspaces/${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  deleteWorkspace: (id: string) =>
+    fetchJSON<{ ok: boolean; removed: string }>(
+      `/api/workspaces/${encodeURIComponent(id)}`,
+      { method: "DELETE" },
+    ),
+  getWorkspaceDeliverables: (id: string, limit = 50, since = 0) =>
+    fetchJSON<WorkspaceDeliverables>(
+      `/api/workspaces/${encodeURIComponent(id)}/deliverables?limit=${limit}&since=${since}`,
+    ),
+  browseWorkspaceFolders: (path = "") =>
+    fetchJSON<WorkspaceBrowse>(`/api/workspaces/browse?path=${encodeURIComponent(path)}`),
   getSessionLatestDescendant: (id: string, profile = getManagementProfile()) =>
     fetchJSON<SessionLatestDescendantResponse>(
       appendProfileParam(

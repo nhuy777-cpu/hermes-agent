@@ -26,6 +26,7 @@ import {
   Hash,
   Layers3,
   Loader2,
+  Lock,
   Terminal,
   Zap
 } from '@/lib/icons'
@@ -41,7 +42,7 @@ import { revealFileInTree } from '@/store/layout'
 import { $onboardingGate, guidedOnboardingActive } from '@/store/onboarding-gate'
 import { $activeGatewayProfile } from '@/store/profile'
 import { $profileRailVisible } from '@/store/profile-rail-prefs'
-import { $projectTree, projectNameForCwd } from '@/store/projects'
+import { $projectTree, projectForCwdIsStrict, projectNameForCwd } from '@/store/projects'
 import {
   $activeSessionId,
   $busy,
@@ -251,6 +252,7 @@ export function useStatusbarItems({
   // the tree changes; null (no named project) falls back to the cwd leaf below.
   const projectTree = useStore($projectTree)
   const projectName = useMemo(() => projectNameForCwd(currentCwd), [currentCwd, projectTree])
+  const projectStrict = useMemo(() => projectForCwdIsStrict(currentCwd), [currentCwd, projectTree])
 
   const sessionStartedAt = primaryFocused
     ? primarySessionStartedAt
@@ -507,7 +509,7 @@ export function useStatusbarItems({
       },
       {
         hidden: !currentCwd,
-        icon: <FolderOpen className="size-3" />,
+        icon: projectStrict ? <Lock className="size-3" /> : <FolderOpen className="size-3" />,
         id: 'workspace-cwd',
         // Prefer the named project; fall back to the cwd leaf. Hover tip uses
         // the shared display formatter (home → ~) so statusbar and branch bar

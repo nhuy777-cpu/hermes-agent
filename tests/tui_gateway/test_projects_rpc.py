@@ -246,6 +246,7 @@ def test_project_info_for_cwd_returns_status_payload(tmp_path):
         "slug": "repo",
         "name": "Repo",
         "primary_path": str(folder),
+        "strict": False,
     }
 
 
@@ -262,6 +263,7 @@ def test_session_info_carries_project_for_owned_cwd(tmp_path):
         "slug": "proj",
         "name": "Proj",
         "primary_path": str(folder),
+        "strict": False,
     }
     assert info["project"]["name"] == "Proj"
 
@@ -888,3 +890,32 @@ def test_projects_without_a_profile_stay_on_the_launch_home(monkeypatch, tmp_pat
     assert not (Path(os.environ["HERMES_HOME"]) / "projects.db").exists()
 
 
+
+
+def test_update_strict_persists_and_surfaces_in_project_info(tmp_path):
+    folder = tmp_path / "confined"
+    folder.mkdir()
+    pid = _call("projects.create", {"name": "Confined", "folders": [str(folder)]})["project"]["id"]
+    assert _call("projects.get", {"id": pid})["project"]["strict"] is False
+    updated = _call("projects.update", {"id": pid, "strict": True})
+    assert updated["project"]["strict"] is True
+    assert server._project_info_for_cwd(str(folder))["strict"] is True
+    # A None/absent strict leaves the flag untouched, matching the other optional fields.
+    assert _call("projects.update", {"id": pid, "name": "Still confined"})["project"]["strict"] is True
+
+
+def test_strict_root_resolves_to_innermost_owning_folder(tmp_path):
+    outer = tmp_path / "outer"
+    inner = outer / "inner"
+    inner.mkdir(parents=True)
+    pid = _call("projects.create", {"name": "Outer", "folders": [str(outer)]})["project"]["id"]
+    _call("projects.add_folder", {"id": pid, "path": str(inner)})
+    # Not strict: no root, whatever the cwd.
+    assert server._strict_root_for_cwd(str(inner)) is None
+    _call("projects.update", {"id": pid, "strict": True})
+    # Strict: the longest owning folder wins, and a cwd deeper inside it maps to it.
+    assert server._strict_root_for_cwd(str(inner)) == str(inner)
+    assert server._strict_root_for_cwd(str(inner / "deeper")) == str(inner)
+    assert server._strict_root_for_cwd(str(outer)) == str(outer)
+    # A cwd no project owns is unconfined.
+    assert server._strict_root_for_cwd(str(tmp_path)) is None

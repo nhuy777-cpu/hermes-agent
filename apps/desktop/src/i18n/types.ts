@@ -1223,6 +1223,30 @@ export interface Translations {
       importNoMatch: string
       importConfirm: string
       importConfirmMany: (count: number) => string
+      addTitle: string
+      addDesc: string
+      addConfirm: string
+      addOptional: string
+      addNameHint: string
+      addAdvanced: string
+      addTransport: string
+      addTransportStdio: string
+      addTransportHttp: string
+      addTransportSse: string
+      addCommand: string
+      addCommandHint: string
+      addArgs: string
+      addArgsHint: string
+      addEnv: string
+      addEnvHint: string
+      addUrl: string
+      addUrlHint: string
+      addClientId: string
+      addClientSecret: string
+      addOauthHint: string
+      addHeaders: string
+      addHeadersHint: string
+      addTrustNotice: string
     }
     model: {
       loading: string
@@ -2434,6 +2458,9 @@ export interface Translations {
       noColor: string
       menuAddFolder: string
       menuSetActive: string
+      menuStrictOn: string
+      menuStrictOff: string
+      strictBadge: string
       menuDelete: string
       moveToProject: string
       movedTo: (name: string) => string
@@ -2630,6 +2657,29 @@ export interface Translations {
     themeTryPre: string
     themeTryPost: string
     attachLabel: string
+    cowork: {
+      modeLabel: string
+      chat: string
+      chatTip: string
+      cowork: string
+      coworkTip: string
+      projectOrFolder: string
+      projectsLabel: string
+      noProjects: string
+      browseFolder: string
+      browseFailed: string
+      recording: string
+      clicks: (n: number) => string
+      truncated: string
+      stopAndCreate: string
+      discard: string
+      stopTitle: string
+      stopDescription: string
+      namePlaceholder: string
+      createSkill: string
+      saved: (clicks: number, shots: number) => string
+      stopFailed: string
+    }
     files: string
     folder: string
     images: string
@@ -3308,6 +3358,10 @@ export interface Translations {
     folderTip: (cwd: string) => string
     openFolder: string
     refreshTree: string
+    sessionResults: string
+    sessionResultsEmpty: string
+    sessionResultsTruncated: string
+    refreshSessionResults: string
     collapseAll: string
     previewUnavailable: string
     couldNotPreview: (path: string) => string

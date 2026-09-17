@@ -29,7 +29,8 @@ import {
   openProjectRename,
   revealPath,
   setActiveProject,
-  setProjectAppearance
+  setProjectAppearance,
+  updateProject
 } from '@/store/projects'
 
 import { ProjectAppearancePicker } from './project-appearance'
@@ -92,6 +93,15 @@ function useProjectActions({
           key: 'set-active',
           label: p.menuSetActive,
           onSelect: () => void setActiveProject(project.id)
+        },
+        // Cowork-style confinement: sessions in this project keep their file
+        // tools inside its folders. Takes effect on the next session start (the
+        // root is registered when a session binds its cwd).
+        {
+          icon: project.strict ? 'unlock' : 'lock',
+          key: 'strict',
+          label: project.strict ? p.menuStrictOff : p.menuStrictOn,
+          onSelect: () => void updateProject(project.id, { strict: !project.strict })
         }
       ]
 

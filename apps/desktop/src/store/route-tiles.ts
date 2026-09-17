@@ -48,3 +48,14 @@ export function openRouteTile(path: string, dir: SplitDir = 'right') {
 export function closeRouteTile(path: string) {
   saveTiles($routeTiles.get().filter(t => t.path !== path))
 }
+
+/** Tab to show inside the Capabilities route tile. Deliberately NOT a `?tab=`
+ *  URL param: the tile and the main thread share one app-wide HashRouter
+ *  location (one <HashRouter> for the whole window), so writing the tab into
+ *  the hash navigates the main pane too and replaces whatever session was
+ *  open there. This store lets `openSkillsTab` (composer "+" menu) pick a
+ *  tab for the DOCKED tile only — SkillsView reads it via its `embedded`
+ *  mode, the same mechanism plugin dialogs already use to keep tab state out
+ *  of the URL (see SkillsViewProps.embedded in app/skills/index.tsx). */
+export type SkillsTileTab = 'skills' | 'toolsets' | 'mcp' | 'plugins'
+export const $skillsTileTab = atom<SkillsTileTab>('skills')
