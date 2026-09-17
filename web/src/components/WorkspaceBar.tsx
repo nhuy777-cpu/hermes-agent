@@ -66,8 +66,12 @@ export function WorkspaceBar({ value, onChange }: WorkspaceBarProps) {
   const [busy, setBusy] = useState(false);
 
   // The PTY (re)spawns whenever the selection changes, so "this session" starts
-  // at the moment the selection was last applied.
-  const sessionStartRef = useRef(Math.floor(Date.now() / 1000));
+  // at the moment the selection was last applied. Date.now() can't run in the
+  // render body (react-hooks/purity), not even to lazy-init a ref — so this
+  // sets it in an effect, covering both mount and every later change. It runs
+  // before the loadFiles effect below on both mount and a value change, so
+  // the ref is never read before it has a real timestamp.
+  const sessionStartRef = useRef<number | null>(null);
   useEffect(() => {
     sessionStartRef.current = Math.floor(Date.now() / 1000);
   }, [value]);
@@ -92,7 +96,7 @@ export function WorkspaceBar({ value, onChange }: WorkspaceBarProps) {
     if (!value) return;
     setBusy(true);
     try {
-      const since = sessionOnly ? sessionStartRef.current : 0;
+      const since = sessionOnly ? (sessionStartRef.current ?? 0) : 0;
       const res = await api.getWorkspaceDeliverables(value, 50, since);
       setFiles(res.files);
       setFilesTruncated(res.truncated);
